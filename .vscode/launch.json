@@ -1,0 +1,19 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "index.html を起動 (Edge)",
+      "type": "pwa-msedge",
+      "request": "launch",
+      "file": "${workspaceFolder}/index.html",
+      "webRoot": "${workspaceFolder}"
+    },
+    {
+      "name": "index.html を起動 (Chrome)",
+      "type": "pwa-chrome",
+      "request": "launch",
+      "file": "${workspaceFolder}/index.html",
+      "webRoot": "${workspaceFolder}"
+    }
+  ]
+}
