@@ -41,6 +41,12 @@
       flex-wrap: wrap;
       margin-bottom: 16px;
     }
+    .preview-wrap {
+      position: relative;
+      width: 100%;
+      max-width: 520px;
+      margin-bottom: 12px;
+    }
     button {
       border: none;
       background: #111827;
@@ -98,19 +104,42 @@
       line-height: 1.5;
       background: #fafafa;
     }
-    video {
+    video,
+    .preview-image,
+    .preview-canvas {
       width: 100%;
-      max-width: 520px;
       border-radius: 8px;
       border: 1px solid #d1d5db;
       background: #000;
       display: none;
-      margin-bottom: 12px;
+    }
+    .preview-image,
+    .preview-canvas {
+      object-fit: contain;
+      background: #111;
+    }
+    .param-panel {
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 12px;
+      background: #fafafa;
+      margin: 10px 0 16px;
+    }
+    .param-panel label {
+      font-size: 12px;
+      color: #374151;
+    }
+    .param-panel input,
+    .param-panel select {
+      padding: 6px 8px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 12px;
     }
   </style>
 </head>
 <body>
-  <div id="versionBadge" class="version-badge">v5</div>
+  <div id="versionBadge" class="version-badge">v6</div>
   <main class="container">
     <h1>PDF・画像・カメラから文字を抽出</h1>
     <div class="row">
@@ -121,8 +150,46 @@
       <button id="captureCameraBtn" type="button" disabled>撮影してOCR</button>
       <button id="stopCameraBtn" type="button" disabled>カメラ停止</button>
       <button id="copyBtn" type="button" disabled>抽出結果をコピー</button>
+      <button id="reOcrBtn" type="button" disabled>再OCR</button>
     </div>
-    <video id="cameraPreview" autoplay playsinline muted></video>
+    <div class="preview-wrap">
+      <video id="cameraPreview" autoplay playsinline muted></video>
+      <img id="filePreview" class="preview-image" alt="ファイルプレビュー" />
+      <canvas id="capturePreview" class="preview-canvas"></canvas>
+    </div>
+    <div class="param-panel">
+      <div class="row">
+        <label>
+          言語
+          <select id="langSelect">
+            <option value="jpn+eng" selected>日本語 + 英語</option>
+            <option value="jpn">日本語のみ</option>
+            <option value="eng">英語のみ</option>
+          </select>
+        </label>
+        <label>
+          PSM
+          <select id="psmSelect">
+            <option value="3" selected>3: 自動（デフォルト）</option>
+            <option value="4">4: 単一段組テキスト</option>
+            <option value="6">6: 単一ブロック</option>
+            <option value="7">7: 単一行</option>
+            <option value="11">11: ばらばらな文字</option>
+          </select>
+        </label>
+        <label>
+          OEM
+          <select id="oemSelect">
+            <option value="1" selected>1: LSTM（推奨）</option>
+            <option value="3">3: 既定（自動）</option>
+          </select>
+        </label>
+        <label>
+          文字限定
+          <input id="whitelistInput" type="text" placeholder="例: 0123456789" />
+        </label>
+      </div>
+    </div>
     <div id="status" class="status">PDFまたは画像を選択すると自動で抽出します。カメラも利用できます。</div>
     <div class="progress-wrap">
       <progress id="progressBar" value="0" max="100"></progress>
@@ -140,23 +207,70 @@
     const captureCameraBtn = document.getElementById("captureCameraBtn");
     const stopCameraBtn = document.getElementById("stopCameraBtn");
     const cameraPreview = document.getElementById("cameraPreview");
+    const filePreview = document.getElementById("filePreview");
+    const capturePreview = document.getElementById("capturePreview");
     const copyBtn = document.getElementById("copyBtn");
+    const reOcrBtn = document.getElementById("reOcrBtn");
     const status = document.getElementById("status");
     const output = document.getElementById("output");
     const progressBar = document.getElementById("progressBar");
     const progressText = document.getElementById("progressText");
     const errorBox = document.getElementById("errorBox");
     const versionBadge = document.getElementById("versionBadge");
-    const APP_VERSION = "v5";
+    const langSelect = document.getElementById("langSelect");
+    const psmSelect = document.getElementById("psmSelect");
+    const oemSelect = document.getElementById("oemSelect");
+    const whitelistInput = document.getElementById("whitelistInput");
+    const APP_VERSION = "v6";
 
     let selectedFile = null;
     let mediaStream = null;
     let isProcessing = false;
+    let lastOcrSource = null;
+    let lastOcrType = "";
 
     versionBadge.textContent = APP_VERSION;
 
     if (window.pdfjsLib?.GlobalWorkerOptions) {
       window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/build/pdf.worker.min.js";
+    }
+
+    function hideAllPreviews() {
+      cameraPreview.style.display = "none";
+      filePreview.style.display = "none";
+      capturePreview.style.display = "none";
+    }
+
+    function showFilePreview(file) {
+      if (!file?.type?.startsWith("image/")) {
+        return;
+      }
+      const objectUrl = URL.createObjectURL(file);
+      filePreview.src = objectUrl;
+      filePreview.onload = () => URL.revokeObjectURL(objectUrl);
+      hideAllPreviews();
+      filePreview.style.display = "block";
+    }
+
+    function showCanvasPreview(canvas) {
+      capturePreview.width = canvas.width;
+      capturePreview.height = canvas.height;
+      const context = capturePreview.getContext("2d");
+      context.drawImage(canvas, 0, 0);
+      hideAllPreviews();
+      capturePreview.style.display = "block";
+    }
+
+    function getOcrParams() {
+      const params = {
+        tessedit_pageseg_mode: psmSelect.value,
+        tessedit_ocr_engine_mode: oemSelect.value
+      };
+      const whitelist = whitelistInput.value.trim();
+      if (whitelist) {
+        params.tessedit_char_whitelist = whitelist;
+      }
+      return params;
     }
 
     function setProgress(value, text) {
@@ -232,7 +346,10 @@
       if (!window.Tesseract?.recognize) {
         throw new Error("Tesseract.jsの読み込みに失敗しました。通信環境を確認してください。");
       }
-      return window.Tesseract.recognize(target, "jpn+eng", {
+      return window.Tesseract.recognize(target, langSelect.value, {
+        tessedit_pageseg_mode: psmSelect.value,
+        tessedit_ocr_engine_mode: oemSelect.value,
+        tessedit_char_whitelist: whitelistInput.value.trim() || undefined,
         logger: (message) => {
           if (typeof message.progress === "number") {
             withPercent(label, message.progress * 100, message.status ? ` (${message.status})` : "");
@@ -284,6 +401,9 @@
           status.textContent = `完了: ${pdf.numPages} ページから抽出しました。`;
         }
         setProgress(100, "PDF抽出が完了しました");
+        lastOcrSource = file;
+        lastOcrType = "pdf";
+        reOcrBtn.disabled = false;
       } catch (error) {
         showError("PDFの読み取りに失敗しました。", formatError(error));
         output.value = "";
@@ -314,6 +434,9 @@
         copyBtn.disabled = output.value.length === 0;
         status.textContent = "完了: 画像から文字を抽出しました。";
         setProgress(100, "画像OCRが完了しました");
+        lastOcrSource = file;
+        lastOcrType = "image";
+        reOcrBtn.disabled = false;
       } catch (error) {
         showError("画像OCRに失敗しました。", formatError(error));
         output.value = "";
@@ -356,6 +479,7 @@
       }
 
       if (isImage) {
+        showFilePreview(selectedFile);
         await extractImage(selectedFile);
         return;
       }
@@ -392,6 +516,7 @@
         mediaStream = await getPreferredCameraStream();
         cameraPreview.srcObject = mediaStream;
         await cameraPreview.play().catch(() => {});
+        hideAllPreviews();
         cameraPreview.style.display = "block";
         captureCameraBtn.disabled = false;
         stopCameraBtn.disabled = false;
@@ -416,7 +541,7 @@
       mediaStream.getTracks().forEach((track) => track.stop());
       mediaStream = null;
       cameraPreview.srcObject = null;
-      cameraPreview.style.display = "none";
+      hideAllPreviews();
       captureCameraBtn.disabled = true;
       stopCameraBtn.disabled = true;
       status.textContent = "カメラを停止しました。";
@@ -446,11 +571,20 @@
         const context = canvas.getContext("2d");
         context.drawImage(cameraPreview, 0, 0, canvas.width, canvas.height);
 
+        mediaStream.getTracks().forEach((track) => track.stop());
+        mediaStream = null;
+        cameraPreview.srcObject = null;
+        showCanvasPreview(canvas);
+        stopCameraBtn.disabled = true;
+
         const result = await recognizeWithProgress(canvas, "撮影画像OCR中...");
         output.value = result.data.text.trim();
         copyBtn.disabled = output.value.length === 0;
         status.textContent = "完了: カメラ画像から文字を抽出しました。";
         setProgress(100, "撮影画像OCRが完了しました");
+        lastOcrSource = canvas;
+        lastOcrType = "camera";
+        reOcrBtn.disabled = false;
       } catch (error) {
         showError("カメラ画像OCRに失敗しました。", formatError(error));
         output.value = "";
@@ -471,6 +605,15 @@
         status.textContent = "抽出結果をコピーしました。";
       } catch {
         showError("コピーに失敗しました。手動でコピーしてください。");
+      }
+    });
+
+    reOcrBtn.addEventListener("click", async () => {
+      if (!lastOcrSource || isProcessing) return;
+      if (lastOcrType === "pdf") {
+        await extractPdf(lastOcrSource);
+      } else {
+        await extractImage(lastOcrSource);
       }
     });
 
