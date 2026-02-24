@@ -87,12 +87,7 @@
   <main class="container">
     <h1>PDF・画像・カメラから文字を抽出</h1>
     <div class="row">
-      <input id="pdfInput" type="file" accept="application/pdf" />
-      <button id="extractPdfBtn" type="button" disabled>PDF文字抽出</button>
-    </div>
-    <div class="row">
-      <input id="imageInput" type="file" accept="image/*" />
-      <button id="extractImageBtn" type="button" disabled>画像OCR</button>
+      <input id="fileInput" type="file" accept="application/pdf,image/*" />
     </div>
     <div class="row">
       <button id="startCameraBtn" type="button">カメラ開始</button>
@@ -101,7 +96,7 @@
       <button id="copyBtn" type="button" disabled>抽出結果をコピー</button>
     </div>
     <video id="cameraPreview" autoplay playsinline muted></video>
-    <div id="status" class="status">PDFまたは画像を選択するか、カメラを開始してください。</div>
+    <div id="status" class="status">PDFまたは画像を選択すると自動で抽出します。カメラも利用できます。</div>
     <textarea id="output" placeholder="ここに抽出結果が表示されます" readonly></textarea>
   </main>
 
@@ -110,10 +105,7 @@
   <script>
     pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/build/pdf.worker.min.js";
 
-    const pdfInput = document.getElementById("pdfInput");
-    const imageInput = document.getElementById("imageInput");
-    const extractPdfBtn = document.getElementById("extractPdfBtn");
-    const extractImageBtn = document.getElementById("extractImageBtn");
+    const fileInput = document.getElementById("fileInput");
     const startCameraBtn = document.getElementById("startCameraBtn");
     const captureCameraBtn = document.getElementById("captureCameraBtn");
     const stopCameraBtn = document.getElementById("stopCameraBtn");
@@ -123,8 +115,7 @@
     const output = document.getElementById("output");
     const versionBadge = document.getElementById("versionBadge");
 
-    let selectedPdfFile = null;
-    let selectedImageFile = null;
+    let selectedFile = null;
     let mediaStream = null;
 
     function hashText(text) {
@@ -165,9 +156,27 @@
     updateVersionBadge();
 
     async function getPreferredCameraStream() {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("MediaDevicesUnsupported");
+      }
+
       const constraintsList = [
-        { video: { facingMode: { exact: "environment" } }, audio: false },
-        { video: { facingMode: "environment" }, audio: false },
+        {
+          video: {
+            facingMode: { exact: "environment" },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+          },
+          audio: false
+        },
+        {
+          video: {
+            facingMode: "environment",
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+          },
+          audio: false
+        },
         { video: true, audio: false }
       ];
 
@@ -175,7 +184,7 @@
         try {
           return await navigator.mediaDevices.getUserMedia(constraints);
         } catch (error) {
-          if (error?.name !== "OverconstrainedError" && error?.name !== "NotFoundError") {
+          if (!["OverconstrainedError", "NotFoundError", "NotReadableError", "AbortError"].includes(error?.name)) {
             throw error;
           }
         }
@@ -184,37 +193,16 @@
       throw new Error("No available camera stream");
     }
 
-    pdfInput.addEventListener("change", () => {
-      selectedPdfFile = pdfInput.files?.[0] ?? null;
-      extractPdfBtn.disabled = !selectedPdfFile;
-      status.textContent = selectedPdfFile
-        ? `PDF選択中: ${selectedPdfFile.name}`
-        : "PDFファイルを選択してください。";
-    });
-
-    imageInput.addEventListener("change", () => {
-      selectedImageFile = imageInput.files?.[0] ?? null;
-      extractImageBtn.disabled = !selectedImageFile;
-      status.textContent = selectedImageFile
-        ? `画像選択中: ${selectedImageFile.name}`
-        : "画像ファイルを選択してください。";
-    });
-
-    extractPdfBtn.addEventListener("click", async () => {
-      if (!selectedPdfFile) {
-        status.textContent = "先にPDFファイルを選択してください。";
-        return;
-      }
-
+    async function extractPdf(file) {
       try {
-        extractPdfBtn.disabled = true;
-        extractImageBtn.disabled = true;
+        fileInput.disabled = true;
+        startCameraBtn.disabled = true;
         captureCameraBtn.disabled = true;
         copyBtn.disabled = true;
         output.value = "";
         status.textContent = "PDFを読み込み中...";
 
-        const data = await selectedPdfFile.arrayBuffer();
+        const data = await file.arrayBuffer();
         const loadingTask = pdfjsLib.getDocument({ data });
         const pdf = await loadingTask.promise;
 
@@ -241,27 +229,22 @@
         output.value = "";
         console.error(error);
       } finally {
-        extractPdfBtn.disabled = !selectedPdfFile;
-        extractImageBtn.disabled = !selectedImageFile;
+        fileInput.disabled = false;
+        startCameraBtn.disabled = false;
         captureCameraBtn.disabled = !mediaStream;
       }
-    });
+    }
 
-    extractImageBtn.addEventListener("click", async () => {
-      if (!selectedImageFile) {
-        status.textContent = "先に画像ファイルを選択してください。";
-        return;
-      }
-
+    async function extractImage(file) {
       try {
-        extractPdfBtn.disabled = true;
-        extractImageBtn.disabled = true;
+        fileInput.disabled = true;
+        startCameraBtn.disabled = true;
         captureCameraBtn.disabled = true;
         copyBtn.disabled = true;
         output.value = "";
         status.textContent = "画像OCRを実行中...";
 
-        const result = await window.Tesseract.recognize(selectedImageFile, "jpn+eng");
+        const result = await window.Tesseract.recognize(file, "jpn+eng");
         output.value = result.data.text.trim();
         copyBtn.disabled = output.value.length === 0;
         status.textContent = "完了: 画像から文字を抽出しました。";
@@ -270,15 +253,51 @@
         output.value = "";
         console.error(error);
       } finally {
-        extractPdfBtn.disabled = !selectedPdfFile;
-        extractImageBtn.disabled = !selectedImageFile;
+        fileInput.disabled = false;
+        startCameraBtn.disabled = false;
         captureCameraBtn.disabled = !mediaStream;
       }
+    }
+
+    fileInput.addEventListener("change", async () => {
+      selectedFile = fileInput.files?.[0] ?? null;
+
+      if (!selectedFile) {
+        status.textContent = "PDFまたは画像ファイルを選択してください。";
+        return;
+      }
+
+      const mimeType = selectedFile.type.toLowerCase();
+      const lowerName = selectedFile.name.toLowerCase();
+      const isPdf = mimeType === "application/pdf" || lowerName.endsWith(".pdf");
+      const isImage = mimeType.startsWith("image/")
+        || /\.(png|jpe?g|gif|bmp|webp|tiff?|heic|heif)$/i.test(lowerName);
+
+      status.textContent = `ファイル選択中: ${selectedFile.name}`;
+
+      if (isPdf) {
+        await extractPdf(selectedFile);
+        return;
+      }
+
+      if (isImage) {
+        await extractImage(selectedFile);
+        return;
+      }
+
+      status.textContent = "未対応のファイル形式です。PDFまたは画像を選択してください。";
+      output.value = "";
     });
 
     startCameraBtn.addEventListener("click", async () => {
       if (mediaStream) return;
       try {
+        if (window.isSecureContext === false) {
+          status.textContent = "エラー: カメラはHTTPSまたはlocalhostでのみ利用できます。";
+          return;
+        }
+
+        startCameraBtn.disabled = true;
         mediaStream = await getPreferredCameraStream();
         cameraPreview.srcObject = mediaStream;
         cameraPreview.style.display = "block";
@@ -286,8 +305,16 @@
         stopCameraBtn.disabled = false;
         status.textContent = "カメラ起動中。撮影してOCRを押してください。";
       } catch (error) {
-        status.textContent = "エラー: カメラを起動できませんでした。";
+        if (error?.name === "NotAllowedError") {
+          status.textContent = "エラー: カメラ権限が拒否されました。ブラウザ設定で許可してください。";
+        } else if (error?.message === "MediaDevicesUnsupported") {
+          status.textContent = "エラー: このブラウザはカメラAPIに対応していません。";
+        } else {
+          status.textContent = "エラー: カメラを起動できませんでした。";
+        }
         console.error(error);
+      } finally {
+        startCameraBtn.disabled = false;
       }
     });
 
@@ -309,8 +336,8 @@
       }
 
       try {
-        extractPdfBtn.disabled = true;
-        extractImageBtn.disabled = true;
+        fileInput.disabled = true;
+        startCameraBtn.disabled = true;
         captureCameraBtn.disabled = true;
         copyBtn.disabled = true;
         output.value = "";
@@ -331,8 +358,8 @@
         output.value = "";
         console.error(error);
       } finally {
-        extractPdfBtn.disabled = !selectedPdfFile;
-        extractImageBtn.disabled = !selectedImageFile;
+        fileInput.disabled = false;
+        startCameraBtn.disabled = false;
         captureCameraBtn.disabled = !mediaStream;
       }
     });
