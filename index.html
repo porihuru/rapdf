@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PDF・画像・カメラ文字抽出</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f7f7f8;
+      color: #111;
+    }
+    .container {
+      max-width: 900px;
+      margin: 40px auto;
+      padding: 24px;
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+    }
+    h1 {
+      margin-top: 0;
+      font-size: 24px;
+    }
+    .row {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+    button {
+      border: none;
+      background: #111827;
+      color: #fff;
+      padding: 10px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .status {
+      font-size: 14px;
+      color: #374151;
+    }
+    textarea {
+      width: 100%;
+      min-height: 420px;
+      resize: vertical;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      padding: 12px;
+      box-sizing: border-box;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 13px;
+      line-height: 1.5;
+      background: #fafafa;
+    }
+    video {
+      width: 100%;
+      max-width: 520px;
+      border-radius: 8px;
+      border: 1px solid #d1d5db;
+      background: #000;
+      display: none;
+      margin-bottom: 12px;
+    }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <h1>PDF・画像・カメラから文字を抽出</h1>
+    <div class="row">
+      <input id="pdfInput" type="file" accept="application/pdf" />
+      <button id="extractPdfBtn" type="button" disabled>PDF文字抽出</button>
+    </div>
+    <div class="row">
+      <input id="imageInput" type="file" accept="image/*" />
+      <button id="extractImageBtn" type="button" disabled>画像OCR</button>
+    </div>
+    <div class="row">
+      <button id="startCameraBtn" type="button">カメラ開始</button>
+      <button id="captureCameraBtn" type="button" disabled>撮影してOCR</button>
+      <button id="stopCameraBtn" type="button" disabled>カメラ停止</button>
+      <button id="copyBtn" type="button" disabled>抽出結果をコピー</button>
+    </div>
+    <video id="cameraPreview" autoplay playsinline muted></video>
+    <div id="status" class="status">PDFまたは画像を選択するか、カメラを開始してください。</div>
+    <textarea id="output" placeholder="ここに抽出結果が表示されます" readonly></textarea>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script type="module">
+    import * as pdfjsLib from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/build/pdf.min.mjs";
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/build/pdf.worker.min.mjs";
+
+    const pdfInput = document.getElementById("pdfInput");
+    const imageInput = document.getElementById("imageInput");
+    const extractPdfBtn = document.getElementById("extractPdfBtn");
+    const extractImageBtn = document.getElementById("extractImageBtn");
+    const startCameraBtn = document.getElementById("startCameraBtn");
+    const captureCameraBtn = document.getElementById("captureCameraBtn");
+    const stopCameraBtn = document.getElementById("stopCameraBtn");
+    const cameraPreview = document.getElementById("cameraPreview");
+    const copyBtn = document.getElementById("copyBtn");
+    const status = document.getElementById("status");
+    const output = document.getElementById("output");
+
+    let selectedPdfFile = null;
+    let selectedImageFile = null;
+    let mediaStream = null;
+
+    pdfInput.addEventListener("change", () => {
+      selectedPdfFile = pdfInput.files?.[0] ?? null;
+      extractPdfBtn.disabled = !selectedPdfFile;
+      status.textContent = selectedPdfFile
+        ? `PDF選択中: ${selectedPdfFile.name}`
+        : "PDFファイルを選択してください。";
+    });
+
+    imageInput.addEventListener("change", () => {
+      selectedImageFile = imageInput.files?.[0] ?? null;
+      extractImageBtn.disabled = !selectedImageFile;
+      status.textContent = selectedImageFile
+        ? `画像選択中: ${selectedImageFile.name}`
+        : "画像ファイルを選択してください。";
+    });
+
+    extractPdfBtn.addEventListener("click", async () => {
+      if (!selectedPdfFile) {
+        status.textContent = "先にPDFファイルを選択してください。";
+        return;
+      }
+
+      try {
+        extractPdfBtn.disabled = true;
+        extractImageBtn.disabled = true;
+        captureCameraBtn.disabled = true;
+        copyBtn.disabled = true;
+        output.value = "";
+        status.textContent = "PDFを読み込み中...";
+
+        const data = await selectedPdfFile.arrayBuffer();
+        const loadingTask = pdfjsLib.getDocument({ data });
+        const pdf = await loadingTask.promise;
+
+        let allText = "";
+
+        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+          status.textContent = `抽出中... ${pageNum}/${pdf.numPages} ページ`;
+          const page = await pdf.getPage(pageNum);
+          const textContent = await page.getTextContent();
+          const pageText = textContent.items
+            .map((item) => item.str)
+            .join(" ")
+            .replace(/\s+/g, " ")
+            .trim();
+
+          allText += `--- Page ${pageNum} ---\n${pageText}\n\n`;
+        }
+
+        output.value = allText.trim();
+        copyBtn.disabled = output.value.length === 0;
+        status.textContent = `完了: ${pdf.numPages} ページから抽出しました。`;
+      } catch (error) {
+        status.textContent = "エラー: PDFの読み取りに失敗しました。";
+        output.value = "";
+        console.error(error);
+      } finally {
+        extractPdfBtn.disabled = !selectedPdfFile;
+        extractImageBtn.disabled = !selectedImageFile;
+        captureCameraBtn.disabled = !mediaStream;
+      }
+    });
+
+    extractImageBtn.addEventListener("click", async () => {
+      if (!selectedImageFile) {
+        status.textContent = "先に画像ファイルを選択してください。";
+        return;
+      }
+
+      try {
+        extractPdfBtn.disabled = true;
+        extractImageBtn.disabled = true;
+        captureCameraBtn.disabled = true;
+        copyBtn.disabled = true;
+        output.value = "";
+        status.textContent = "画像OCRを実行中...";
+
+        const result = await window.Tesseract.recognize(selectedImageFile, "jpn+eng");
+        output.value = result.data.text.trim();
+        copyBtn.disabled = output.value.length === 0;
+        status.textContent = "完了: 画像から文字を抽出しました。";
+      } catch (error) {
+        status.textContent = "エラー: 画像OCRに失敗しました。";
+        output.value = "";
+        console.error(error);
+      } finally {
+        extractPdfBtn.disabled = !selectedPdfFile;
+        extractImageBtn.disabled = !selectedImageFile;
+        captureCameraBtn.disabled = !mediaStream;
+      }
+    });
+
+    startCameraBtn.addEventListener("click", async () => {
+      if (mediaStream) return;
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        cameraPreview.srcObject = mediaStream;
+        cameraPreview.style.display = "block";
+        captureCameraBtn.disabled = false;
+        stopCameraBtn.disabled = false;
+        status.textContent = "カメラ起動中。撮影してOCRを押してください。";
+      } catch (error) {
+        status.textContent = "エラー: カメラを起動できませんでした。";
+        console.error(error);
+      }
+    });
+
+    stopCameraBtn.addEventListener("click", () => {
+      if (!mediaStream) return;
+      mediaStream.getTracks().forEach((track) => track.stop());
+      mediaStream = null;
+      cameraPreview.srcObject = null;
+      cameraPreview.style.display = "none";
+      captureCameraBtn.disabled = true;
+      stopCameraBtn.disabled = true;
+      status.textContent = "カメラを停止しました。";
+    });
+
+    captureCameraBtn.addEventListener("click", async () => {
+      if (!mediaStream) {
+        status.textContent = "先にカメラを開始してください。";
+        return;
+      }
+
+      try {
+        extractPdfBtn.disabled = true;
+        extractImageBtn.disabled = true;
+        captureCameraBtn.disabled = true;
+        copyBtn.disabled = true;
+        output.value = "";
+        status.textContent = "撮影画像をOCR中...";
+
+        const canvas = document.createElement("canvas");
+        canvas.width = cameraPreview.videoWidth;
+        canvas.height = cameraPreview.videoHeight;
+        const context = canvas.getContext("2d");
+        context.drawImage(cameraPreview, 0, 0, canvas.width, canvas.height);
+
+        const result = await window.Tesseract.recognize(canvas, "jpn+eng");
+        output.value = result.data.text.trim();
+        copyBtn.disabled = output.value.length === 0;
+        status.textContent = "完了: カメラ画像から文字を抽出しました。";
+      } catch (error) {
+        status.textContent = "エラー: カメラ画像OCRに失敗しました。";
+        output.value = "";
+        console.error(error);
+      } finally {
+        extractPdfBtn.disabled = !selectedPdfFile;
+        extractImageBtn.disabled = !selectedImageFile;
+        captureCameraBtn.disabled = !mediaStream;
+      }
+    });
+
+    copyBtn.addEventListener("click", async () => {
+      if (!output.value) return;
+      try {
+        await navigator.clipboard.writeText(output.value);
+        status.textContent = "抽出結果をコピーしました。";
+      } catch {
+        status.textContent = "コピーに失敗しました。手動でコピーしてください。";
+      }
+    });
+  </script>
+</body>
+</html>
