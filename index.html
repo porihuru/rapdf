@@ -150,7 +150,6 @@
       <button id="captureCameraBtn" type="button" disabled>撮影してOCR</button>
       <button id="stopCameraBtn" type="button" disabled>カメラ停止</button>
       <button id="copyBtn" type="button" disabled>抽出結果をコピー</button>
-      <button id="reOcrBtn" type="button" disabled>再OCR</button>
     </div>
     <div class="preview-wrap">
       <video id="cameraPreview" autoplay playsinline muted></video>
@@ -189,6 +188,30 @@
           <input id="whitelistInput" type="text" placeholder="例: 0123456789" />
         </label>
       </div>
+      <div class="row">
+        <label>
+          画像スケール
+          <input id="scaleInput" type="range" min="1" max="4" value="1" step="0.5" />
+          <span id="scaleValue">1x</span>
+        </label>
+        <label>
+          コントラスト
+          <input id="contrastInput" type="range" min="0" max="200" value="100" step="10" />
+          <span id="contrastValue">100%</span>
+        </label>
+        <label>
+          二値化（閾値）
+          <input id="thresholdInput" type="range" min="0" max="255" value="128" step="10" />
+          <span id="thresholdValue">128</span>
+        </label>
+        <label>
+          ノイズ除去
+          <input id="denoiseInput" type="checkbox" />
+        </label>
+      </div>
+      <div class="row">
+        <button id="reOcrBtn" type="button" disabled>再OCR</button>
+      </div>
     </div>
     <div id="status" class="status">PDFまたは画像を選択すると自動で抽出します。カメラも利用できます。</div>
     <div class="progress-wrap">
@@ -221,6 +244,13 @@
     const psmSelect = document.getElementById("psmSelect");
     const oemSelect = document.getElementById("oemSelect");
     const whitelistInput = document.getElementById("whitelistInput");
+    const scaleInput = document.getElementById("scaleInput");
+    const scaleValue = document.getElementById("scaleValue");
+    const contrastInput = document.getElementById("contrastInput");
+    const contrastValue = document.getElementById("contrastValue");
+    const thresholdInput = document.getElementById("thresholdInput");
+    const thresholdValue = document.getElementById("thresholdValue");
+    const denoiseInput = document.getElementById("denoiseInput");
     const APP_VERSION = "v6";
 
     let selectedFile = null;
@@ -228,8 +258,19 @@
     let isProcessing = false;
     let lastOcrSource = null;
     let lastOcrType = "";
+    let lastImageData = null;
 
     versionBadge.textContent = APP_VERSION;
+
+    scaleInput.addEventListener("input", () => {
+      scaleValue.textContent = `${scaleInput.value}x`;
+    });
+    contrastInput.addEventListener("input", () => {
+      contrastValue.textContent = `${contrastInput.value}%`;
+    });
+    thresholdInput.addEventListener("input", () => {
+      thresholdValue.textContent = thresholdInput.value;
+    });
 
     if (window.pdfjsLib?.GlobalWorkerOptions) {
       window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/build/pdf.worker.min.js";
@@ -450,6 +491,64 @@
       }
     }
 
+    function showCanvasPreview(canvas) {
+      capturePreview.width = canvas.width;
+      capturePreview.height = canvas.height;
+      const context = capturePreview.getContext("2d");
+      context.drawImage(canvas, 0, 0);
+      hideAllPreviews();
+      capturePreview.style.display = "block";
+      lastImageData = { canvas, width: canvas.width, height: canvas.height };
+    }
+
+    function applyImageEnhancements(sourceCanvas) {
+      const tempCanvas = document.createElement("canvas");
+      const scale = parseFloat(scaleInput.value) || 1;
+      const contrast = parseFloat(contrastInput.value) || 100;
+      const threshold = parseInt(thresholdInput.value, 10) || 128;
+      const denoise = denoiseInput.checked;
+
+      tempCanvas.width = sourceCanvas.width * scale;
+      tempCanvas.height = sourceCanvas.height * scale;
+      const ctx = tempCanvas.getContext("2d");
+
+      if (scale !== 1) {
+        ctx.drawImage(sourceCanvas, 0, 0, tempCanvas.width, tempCanvas.height);
+      } else {
+        ctx.drawImage(sourceCanvas, 0, 0);
+      }
+
+      if (contrast !== 100 || denoise || threshold !== 128) {
+        const imageData = ctx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+        const data = imageData.data;
+
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i];
+          const g = data[i + 1];
+          const b = data[i + 2];
+
+          let gray = 0.299 * r + 0.587 * g + 0.114 * b;
+
+          if (contrast !== 100) {
+            gray = ((gray - 128) * (contrast / 100)) + 128;
+          }
+
+          if (threshold !== 128) {
+            gray = gray > threshold ? 255 : 0;
+          }
+
+          const finalVal = Math.max(0, Math.min(255, gray));
+          data[i] = finalVal;
+          data[i + 1] = finalVal;
+          data[i + 2] = finalVal;
+        }
+
+        ctx.putImageData(imageData, 0, 0);
+      }
+
+      return tempCanvas;
+    }
+
     async function handleSelectedFile(file) {
       if (isProcessing) {
         status.textContent = "処理中です。完了後にもう一度ファイルを選択してください。";
@@ -577,7 +676,8 @@
         showCanvasPreview(canvas);
         stopCameraBtn.disabled = true;
 
-        const result = await recognizeWithProgress(canvas, "撮影画像OCR中...");
+        const enhancedCanvas = applyImageEnhancements(canvas);
+        const result = await recognizeWithProgress(enhancedCanvas, "撮影画像OCR中...");
         output.value = result.data.text.trim();
         copyBtn.disabled = output.value.length === 0;
         status.textContent = "完了: カメラ画像から文字を抽出しました。";
@@ -610,6 +710,29 @@
 
     reOcrBtn.addEventListener("click", async () => {
       if (!lastOcrSource || isProcessing) return;
+
+      if (lastOcrType === "camera" && lastImageData?.canvas) {
+        const enhancedCanvas = applyImageEnhancements(lastImageData.canvas);
+        try {
+          clearError();
+          isProcessing = true;
+          output.value = "";
+          status.textContent = "再OCR実行中...";
+          setProgress(3, "再OCR開始...");
+          const result = await recognizeWithProgress(enhancedCanvas, "再OCR中...");
+          output.value = result.data.text.trim();
+          copyBtn.disabled = output.value.length === 0;
+          status.textContent = "完了: 再OCRが完了しました。";
+          setProgress(100, "再OCRが完了しました");
+        } catch (error) {
+          showError("再OCRに失敗しました。", formatError(error));
+          console.error(error);
+        } finally {
+          isProcessing = false;
+        }
+        return;
+      }
+
       if (lastOcrType === "pdf") {
         await extractPdf(lastOcrSource);
       } else {
