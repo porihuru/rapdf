@@ -47,6 +47,14 @@
       max-width: 520px;
       margin-bottom: 12px;
     }
+    .overlay-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: none;
+      pointer-events: none;
+    }
     button {
       border: none;
       background: #111827;
@@ -139,7 +147,7 @@
   </style>
 </head>
 <body>
-  <div id="versionBadge" class="version-badge">v7</div>
+  <div id="versionBadge" class="version-badge">v8</div>
   <main class="container">
     <h1>PDF・画像・カメラから文字を抽出</h1>
     <div class="row">
@@ -155,6 +163,7 @@
       <video id="cameraPreview" autoplay playsinline muted></video>
       <img id="filePreview" class="preview-image" alt="ファイルプレビュー" />
       <canvas id="capturePreview" class="preview-canvas"></canvas>
+      <canvas id="overlayCanvas" class="overlay-canvas"></canvas>
     </div>
     <div class="param-panel">
       <div class="row">
@@ -215,6 +224,7 @@
         </label>
       </div>
       <div class="row">
+        <button id="toggleOverlayBtn" type="button" disabled>オーバレイ表示</button>
         <button id="reOcrBtn" type="button" disabled>再OCR</button>
       </div>
     </div>
@@ -237,7 +247,9 @@
     const cameraPreview = document.getElementById("cameraPreview");
     const filePreview = document.getElementById("filePreview");
     const capturePreview = document.getElementById("capturePreview");
+    const overlayCanvas = document.getElementById("overlayCanvas");
     const copyBtn = document.getElementById("copyBtn");
+    const toggleOverlayBtn = document.getElementById("toggleOverlayBtn");
     const reOcrBtn = document.getElementById("reOcrBtn");
     const status = document.getElementById("status");
     const output = document.getElementById("output");
@@ -258,7 +270,7 @@
     const denoiseInput = document.getElementById("denoiseInput");
     const rotationInput = document.getElementById("rotationInput");
     const rotationValue = document.getElementById("rotationValue");
-    const APP_VERSION = "v7";
+    const APP_VERSION = "v8";
 
     let selectedFile = null;
     let mediaStream = null;
@@ -266,6 +278,8 @@
     let lastOcrSource = null;
     let lastOcrType = "";
     let lastImageData = null;
+    let overlayVisible = false;
+    let lastOverlayData = null;
 
     versionBadge.textContent = APP_VERSION;
 
@@ -290,6 +304,7 @@
       cameraPreview.style.display = "none";
       filePreview.style.display = "none";
       capturePreview.style.display = "none";
+      overlayCanvas.style.display = "none";
     }
 
     function showFilePreview(file) {
@@ -298,7 +313,10 @@
       }
       const objectUrl = URL.createObjectURL(file);
       filePreview.src = objectUrl;
-      filePreview.onload = () => URL.revokeObjectURL(objectUrl);
+      filePreview.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        if (overlayVisible) drawOverlay();
+      };
       hideAllPreviews();
       filePreview.style.display = "block";
     }
@@ -411,6 +429,7 @@
 
     async function extractPdf(file) {
       try {
+        clearOverlayData();
         clearError();
         isProcessing = true;
         fileInput.disabled = true;
@@ -485,6 +504,7 @@
         copyBtn.disabled = output.value.length === 0;
         status.textContent = "完了: 画像から文字を抽出しました。";
         setProgress(100, "画像OCRが完了しました");
+        setOverlayData(result, filePreview.naturalWidth, filePreview.naturalHeight);
         lastOcrSource = file;
         lastOcrType = "image";
         reOcrBtn.disabled = false;
@@ -509,6 +529,116 @@
       hideAllPreviews();
       capturePreview.style.display = "block";
       lastImageData = { canvas, width: canvas.width, height: canvas.height };
+      if (overlayVisible) drawOverlay();
+    }
+
+    function updateOverlayButtonText() {
+      toggleOverlayBtn.textContent = overlayVisible ? "オーバレイ非表示" : "オーバレイ表示";
+    }
+
+    function getActivePreviewElement() {
+      if (filePreview.style.display === "block") return filePreview;
+      if (capturePreview.style.display === "block") return capturePreview;
+      return null;
+    }
+
+    function clearOverlayData() {
+      lastOverlayData = null;
+      overlayCanvas.style.display = "none";
+      toggleOverlayBtn.disabled = true;
+      overlayVisible = false;
+      updateOverlayButtonText();
+    }
+
+    function toOverlayWords(result) {
+      const words = result?.data?.words ?? [];
+      return words
+        .map((word) => {
+          const box = word?.bbox ?? {};
+          const x0 = Number(box.x0 ?? 0);
+          const y0 = Number(box.y0 ?? 0);
+          const x1 = Number(box.x1 ?? 0);
+          const y1 = Number(box.y1 ?? 0);
+          return {
+            text: word?.text ?? "",
+            confidence: Number(word?.confidence ?? 0),
+            x: Math.min(x0, x1),
+            y: Math.min(y0, y1),
+            width: Math.abs(x1 - x0),
+            height: Math.abs(y1 - y0)
+          };
+        })
+        .filter((word) => word.width > 0 && word.height > 0);
+    }
+
+    function setOverlayData(result, width, height) {
+      const words = toOverlayWords(result);
+      lastOverlayData = {
+        words,
+        sourceWidth: Math.max(1, Number(width) || 1),
+        sourceHeight: Math.max(1, Number(height) || 1)
+      };
+      toggleOverlayBtn.disabled = words.length === 0;
+      if (words.length === 0) {
+        overlayVisible = false;
+      }
+      updateOverlayButtonText();
+      if (overlayVisible) drawOverlay();
+    }
+
+    function drawOverlay() {
+      if (!overlayVisible || !lastOverlayData) {
+        overlayCanvas.style.display = "none";
+        return;
+      }
+
+      const previewElement = getActivePreviewElement();
+      if (!previewElement) {
+        overlayCanvas.style.display = "none";
+        return;
+      }
+
+      const width = previewElement.clientWidth;
+      const height = previewElement.clientHeight;
+      if (!width || !height) {
+        overlayCanvas.style.display = "none";
+        return;
+      }
+
+      const dpr = window.devicePixelRatio || 1;
+      overlayCanvas.width = Math.round(width * dpr);
+      overlayCanvas.height = Math.round(height * dpr);
+      overlayCanvas.style.width = `${width}px`;
+      overlayCanvas.style.height = `${height}px`;
+      overlayCanvas.style.display = "block";
+
+      const ctx = overlayCanvas.getContext("2d");
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, width, height);
+
+      const scaleX = width / lastOverlayData.sourceWidth;
+      const scaleY = height / lastOverlayData.sourceHeight;
+
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = "rgba(34, 197, 94, 0.95)";
+      ctx.fillStyle = "rgba(34, 197, 94, 0.20)";
+      ctx.font = "12px sans-serif";
+
+      for (const word of lastOverlayData.words) {
+        const x = word.x * scaleX;
+        const y = word.y * scaleY;
+        const boxWidth = Math.max(1, word.width * scaleX);
+        const boxHeight = Math.max(1, word.height * scaleY);
+
+        ctx.fillRect(x, y, boxWidth, boxHeight);
+        ctx.strokeRect(x, y, boxWidth, boxHeight);
+
+        const label = `${word.text} (${Math.round(word.confidence)}%)`;
+        const textY = y > 14 ? y - 4 : y + 14;
+        ctx.fillStyle = "rgba(17, 24, 39, 0.95)";
+        ctx.fillText(label, x, textY);
+        ctx.fillStyle = "rgba(34, 197, 94, 0.20)";
+      }
     }
 
     function applyImageEnhancements(sourceCanvas) {
@@ -706,6 +836,7 @@
         copyBtn.disabled = output.value.length === 0;
         status.textContent = "完了: カメラ画像から文字を抽出しました。";
         setProgress(100, "撮影画像OCRが完了しました");
+        setOverlayData(result, enhancedCanvas.width, enhancedCanvas.height);
         lastOcrSource = canvas;
         lastOcrType = "camera";
         reOcrBtn.disabled = false;
@@ -748,6 +879,7 @@
           copyBtn.disabled = output.value.length === 0;
           status.textContent = "完了: 再OCRが完了しました。";
           setProgress(100, "再OCRが完了しました");
+          setOverlayData(result, enhancedCanvas.width, enhancedCanvas.height);
         } catch (error) {
           showError("再OCRに失敗しました。", formatError(error));
           console.error(error);
@@ -764,7 +896,19 @@
       }
     });
 
+    toggleOverlayBtn.addEventListener("click", () => {
+      if (!lastOverlayData) return;
+      overlayVisible = !overlayVisible;
+      updateOverlayButtonText();
+      drawOverlay();
+    });
+
+    window.addEventListener("resize", () => {
+      if (overlayVisible) drawOverlay();
+    });
+
     setProgress(0, "待機中");
+    updateOverlayButtonText();
   </script>
 </body>
 </html>
