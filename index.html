@@ -236,6 +236,11 @@
       <div class="row">
         <button id="toggleOverlayBtn" type="button" disabled>オーバレイ表示</button>
         <button id="reOcrBtn" type="button" disabled>再OCR</button>
+        <button id="aiRefineBtn" type="button" disabled>AI連携（整形）</button>
+        <label>
+          Gemini APIキー
+          <input id="aiApiKeyInput" type="password" placeholder="AIza..." />
+        </label>
       </div>
     </div>
     <div id="status" class="status">PDFまたは画像を選択すると自動で抽出します。カメラも利用できます。</div>
@@ -261,6 +266,8 @@
     const copyBtn = document.getElementById("copyBtn");
     const toggleOverlayBtn = document.getElementById("toggleOverlayBtn");
     const reOcrBtn = document.getElementById("reOcrBtn");
+    const aiRefineBtn = document.getElementById("aiRefineBtn");
+    const aiApiKeyInput = document.getElementById("aiApiKeyInput");
     const status = document.getElementById("status");
     const output = document.getElementById("output");
     const progressBar = document.getElementById("progressBar");
@@ -284,7 +291,7 @@
     const charSizeValue = document.getElementById("charSizeValue");
     const confidenceInput = document.getElementById("confidenceInput");
     const confidenceValue = document.getElementById("confidenceValue");
-    const APP_VERSION = "v8";
+    const APP_VERSION = "v9";
 
     let selectedFile = null;
     let mediaStream = null;
@@ -294,6 +301,12 @@
     let lastImageData = null;
     let overlayVisible = false;
     let lastOverlayData = null;
+
+    function updateAiButtonState() {
+      const hasImageSource = (lastOcrType === "image" || lastOcrType === "camera") && Boolean(lastOcrSource);
+      const hasKey = Boolean(aiApiKeyInput.value && aiApiKeyInput.value.trim().length > 0);
+      aiRefineBtn.disabled = !hasImageSource || !hasKey || isProcessing;
+    }
 
     versionBadge.textContent = APP_VERSION;
 
@@ -317,6 +330,7 @@
       confidenceValue.textContent = `${confidenceInput.value}%`;
       if (overlayVisible) drawOverlay();
     });
+    aiApiKeyInput.addEventListener("input", updateAiButtonState);
 
     if (window.pdfjsLib?.GlobalWorkerOptions) {
       window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/build/pdf.worker.min.js";
@@ -373,6 +387,95 @@
     function clearError() {
       errorBox.textContent = "";
       errorBox.classList.remove("visible");
+    }
+
+    function buildAiRefinePrompt() {
+      return [
+        "あなたは画像OCRアシスタントです。",
+        "目的: 画像内の文字を抽出し、読みやすく整形して返してください。",
+        "ルール:",
+        "- 不明箇所は断定せず、判読不能は [判読不能] と記載",
+        "- 数値・日付・金額は最優先で保持",
+        "- 説明や注釈は不要。抽出テキスト本文のみ返す"
+      ].join("\n");
+    }
+
+    async function fileToDataUrl(file) {
+      return await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error("画像の読み込みに失敗しました。"));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function getAiImagePart() {
+      if (lastOcrType === "camera" && lastImageData?.canvas) {
+        const dataUrl = lastImageData.canvas.toDataURL("image/png");
+        const base64 = dataUrl.split(",")[1] || "";
+        if (!base64) throw new Error("カメラ画像の変換に失敗しました。");
+        return {
+          inline_data: {
+            mime_type: "image/png",
+            data: base64
+          }
+        };
+      }
+
+      if (lastOcrType === "image" && lastOcrSource instanceof File) {
+        const mimeType = lastOcrSource.type || "image/png";
+        const dataUrl = await fileToDataUrl(lastOcrSource);
+        const base64 = dataUrl.split(",")[1] || "";
+        if (!base64) throw new Error("画像ファイルの変換に失敗しました。");
+        return {
+          inline_data: {
+            mime_type: mimeType,
+            data: base64
+          }
+        };
+      }
+
+      throw new Error("AI連携用の画像がありません。画像またはカメラでOCRを実行してください。");
+    }
+
+    async function analyzeImageWithGemini(apiKey) {
+      const imagePart = await getAiImagePart();
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${encodeURIComponent(apiKey)}`;
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: buildAiRefinePrompt() },
+              imagePart
+            ]
+          }],
+          generationConfig: {
+            temperature: 0.2
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Gemini API Error (${response.status}): ${errorText}`);
+      }
+
+      const data = await response.json();
+      const refined = (data?.candidates ?? [])
+        .flatMap((candidate) => candidate?.content?.parts ?? [])
+        .map((part) => part?.text ?? "")
+        .join("\n")
+        .trim();
+
+      if (!refined) {
+        throw new Error("AIの応答が空でした。もう一度お試しください。");
+      }
+
+      return refined;
     }
 
     function showError(message, detail = "") {
@@ -487,6 +590,7 @@
 
         output.value = allText.trim();
         copyBtn.disabled = output.value.length === 0;
+        updateAiButtonState();
         if (!output.value) {
           status.textContent = "完了: 文字を検出できませんでした（画像PDFの可能性があります）。";
         } else {
@@ -524,6 +628,7 @@
         const result = await recognizeWithProgress(file, "画像OCR中...");
         output.value = result.data.text.trim();
         copyBtn.disabled = output.value.length === 0;
+        updateAiButtonState();
         status.textContent = "完了: 画像から文字を抽出しました。";
         setProgress(100, "画像OCRが完了しました");
         setOverlayData(result, filePreview.naturalWidth, filePreview.naturalHeight);
@@ -864,6 +969,7 @@
         const result = await recognizeWithProgress(enhancedCanvas, "撮影画像OCR中...");
         output.value = result.data.text.trim();
         copyBtn.disabled = output.value.length === 0;
+        updateAiButtonState();
         status.textContent = "完了: カメラ画像から文字を抽出しました。";
         setProgress(100, "撮影画像OCRが完了しました");
         setOverlayData(result, enhancedCanvas.width, enhancedCanvas.height);
@@ -907,6 +1013,7 @@
           const result = await recognizeWithProgress(enhancedCanvas, "再OCR中...");
           output.value = result.data.text.trim();
           copyBtn.disabled = output.value.length === 0;
+          updateAiButtonState();
           status.textContent = "完了: 再OCRが完了しました。";
           setProgress(100, "再OCRが完了しました");
           setOverlayData(result, enhancedCanvas.width, enhancedCanvas.height);
@@ -933,12 +1040,54 @@
       drawOverlay();
     });
 
+    aiRefineBtn.addEventListener("click", async () => {
+      const apiKey = aiApiKeyInput.value.trim();
+      if (!apiKey) {
+        showError("Gemini APIキーを入力してください。");
+        return;
+      }
+      if (!(lastOcrType === "image" || lastOcrType === "camera")) {
+        showError("AI連携は画像またはカメラOCRで利用できます。PDFは未対応です。");
+        return;
+      }
+
+      try {
+        clearError();
+        isProcessing = true;
+        updateAiButtonState();
+        aiRefineBtn.disabled = true;
+        fileInput.disabled = true;
+        startCameraBtn.disabled = true;
+        captureCameraBtn.disabled = true;
+        reOcrBtn.disabled = true;
+        status.textContent = "Geminiで画像解析中...";
+        setProgress(15, "画像をGeminiへ送信中...");
+
+        const analyzedText = await analyzeImageWithGemini(apiKey);
+        output.value = analyzedText;
+        copyBtn.disabled = output.value.length === 0;
+        status.textContent = "完了: Gemini画像解析が完了しました。";
+        setProgress(100, "Gemini画像解析が完了しました");
+      } catch (error) {
+        showError("AI連携に失敗しました。", formatError(error));
+        console.error(error);
+      } finally {
+        isProcessing = false;
+        fileInput.disabled = false;
+        startCameraBtn.disabled = false;
+        captureCameraBtn.disabled = !mediaStream;
+        reOcrBtn.disabled = !lastOcrSource;
+        updateAiButtonState();
+      }
+    });
+
     window.addEventListener("resize", () => {
       if (overlayVisible) drawOverlay();
     });
 
     setProgress(0, "待機中");
     updateOverlayButtonText();
+    updateAiButtonState();
   </script>
 </body>
 </html>
