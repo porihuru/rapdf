@@ -222,6 +222,16 @@
           <input id="rotationInput" type="range" min="-45" max="45" value="0" step="1" />
           <span id="rotationValue">0°</span>
         </label>
+        <label>
+          文字高さしきい値
+          <input id="charSizeInput" type="range" min="0" max="120" value="0" step="1" />
+          <span id="charSizeValue">0px</span>
+        </label>
+        <label>
+          自信度しきい値
+          <input id="confidenceInput" type="range" min="0" max="100" value="0" step="1" />
+          <span id="confidenceValue">0%</span>
+        </label>
       </div>
       <div class="row">
         <button id="toggleOverlayBtn" type="button" disabled>オーバレイ表示</button>
@@ -270,6 +280,10 @@
     const denoiseInput = document.getElementById("denoiseInput");
     const rotationInput = document.getElementById("rotationInput");
     const rotationValue = document.getElementById("rotationValue");
+    const charSizeInput = document.getElementById("charSizeInput");
+    const charSizeValue = document.getElementById("charSizeValue");
+    const confidenceInput = document.getElementById("confidenceInput");
+    const confidenceValue = document.getElementById("confidenceValue");
     const APP_VERSION = "v8";
 
     let selectedFile = null;
@@ -294,6 +308,14 @@
     });
     rotationInput.addEventListener("input", () => {
       rotationValue.textContent = `${rotationInput.value}°`;
+    });
+    charSizeInput.addEventListener("input", () => {
+      charSizeValue.textContent = `${charSizeInput.value}px`;
+      if (overlayVisible) drawOverlay();
+    });
+    confidenceInput.addEventListener("input", () => {
+      confidenceValue.textContent = `${confidenceInput.value}%`;
+      if (overlayVisible) drawOverlay();
     });
 
     if (window.pdfjsLib?.GlobalWorkerOptions) {
@@ -622,9 +644,17 @@
       ctx.lineWidth = 1.5;
       ctx.strokeStyle = "rgba(34, 197, 94, 0.95)";
       ctx.fillStyle = "rgba(34, 197, 94, 0.20)";
+      const minCharHeight = parseInt(charSizeInput.value, 10) || 0;
+      const minConfidence = parseInt(confidenceInput.value, 10) || 0;
       ctx.font = "12px sans-serif";
 
       for (const word of lastOverlayData.words) {
+        if (word.height < minCharHeight) {
+          continue;
+        }
+        if (word.confidence < minConfidence) {
+          continue;
+        }
         const x = word.x * scaleX;
         const y = word.y * scaleY;
         const boxWidth = Math.max(1, word.width * scaleX);
