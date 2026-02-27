@@ -84,6 +84,27 @@
       font-size: 12px;
       color: #4b5563;
     }
+    .log-panel {
+      margin: 10px 0 12px;
+      padding: 10px;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      background: #f9fafb;
+      font-size: 12px;
+    }
+    .quota-status {
+      color: #1f2937;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+    .api-log {
+      max-height: 140px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: #374151;
+      line-height: 1.5;
+    }
     .error-box {
       margin-top: 8px;
       padding: 10px;
@@ -248,6 +269,10 @@
       <progress id="progressBar" value="0" max="100"></progress>
       <div id="progressText" class="progress-text">待機中</div>
     </div>
+    <div class="log-panel">
+      <div id="quotaStatus" class="quota-status">有料枠残量: 取得不可（Gemini APIでは残量を直接取得できません）</div>
+      <div id="apiLog" class="api-log">APIログ: まだ実行されていません。</div>
+    </div>
     <div id="errorBox" class="error-box"></div>
     <textarea id="output" placeholder="ここに抽出結果が表示されます" readonly></textarea>
   </main>
@@ -272,6 +297,8 @@
     const output = document.getElementById("output");
     const progressBar = document.getElementById("progressBar");
     const progressText = document.getElementById("progressText");
+    const quotaStatus = document.getElementById("quotaStatus");
+    const apiLog = document.getElementById("apiLog");
     const errorBox = document.getElementById("errorBox");
     const versionBadge = document.getElementById("versionBadge");
     const langSelect = document.getElementById("langSelect");
@@ -301,6 +328,30 @@
     let lastImageData = null;
     let overlayVisible = false;
     let lastOverlayData = null;
+    let apiQuotaLimited = false;
+
+    const apiStats = {
+      success: 0,
+      failed: 0,
+      lastModel: "-",
+      lastError: "-"
+    };
+
+    function appendApiLog(message) {
+      const time = new Date().toLocaleTimeString("ja-JP", { hour12: false });
+      if (!apiLog.dataset.hasLogs) {
+        apiLog.textContent = "";
+        apiLog.dataset.hasLogs = "1";
+      }
+      apiLog.textContent = `[${time}] ${message}\n${apiLog.textContent}`;
+    }
+
+    function updateQuotaStatus() {
+      const quotaText = apiQuotaLimited
+        ? "有料枠残量: 上限到達の可能性あり（無料枠/レート制限）"
+        : "有料枠残量: 取得不可（Gemini APIでは残量を直接取得できません）";
+      quotaStatus.textContent = `${quotaText} | 成功:${apiStats.success} 失敗:${apiStats.failed} 最終モデル:${apiStats.lastModel}`;
+    }
 
     function updateAiButtonState() {
       const hasImageSource = (lastOcrType === "image" || lastOcrType === "camera") && Boolean(lastOcrSource);
@@ -400,6 +451,44 @@
       ].join("\n");
     }
 
+    function scaleSize(width, height, maxSide = 1600) {
+      const longest = Math.max(width, height);
+      if (longest <= maxSide) return { width, height };
+      const ratio = maxSide / longest;
+      return {
+        width: Math.max(1, Math.round(width * ratio)),
+        height: Math.max(1, Math.round(height * ratio))
+      };
+    }
+
+    function canvasToJpegBase64(canvas, quality = 0.85) {
+      const dataUrl = canvas.toDataURL("image/jpeg", quality);
+      return dataUrl.split(",")[1] || "";
+    }
+
+    async function fileToImageBitmap(file) {
+      try {
+        return await createImageBitmap(file);
+      } catch {
+        const dataUrl = await fileToDataUrl(file);
+        return await new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = () => reject(new Error("画像の読み込みに失敗しました。"));
+          img.src = dataUrl;
+        });
+      }
+    }
+
+    function drawScaledToCanvas(source, width, height) {
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(source, 0, 0, width, height);
+      return canvas;
+    }
+
     async function fileToDataUrl(file) {
       return await new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -411,25 +500,33 @@
 
     async function getAiImagePart() {
       if (lastOcrType === "camera" && lastImageData?.canvas) {
-        const dataUrl = lastImageData.canvas.toDataURL("image/png");
-        const base64 = dataUrl.split(",")[1] || "";
+        const srcCanvas = lastImageData.canvas;
+        const scaled = scaleSize(srcCanvas.width, srcCanvas.height, 1600);
+        const resizedCanvas = drawScaledToCanvas(srcCanvas, scaled.width, scaled.height);
+        const base64 = canvasToJpegBase64(resizedCanvas);
         if (!base64) throw new Error("カメラ画像の変換に失敗しました。");
         return {
           inline_data: {
-            mime_type: "image/png",
+            mime_type: "image/jpeg",
             data: base64
           }
         };
       }
 
       if (lastOcrType === "image" && lastOcrSource instanceof File) {
-        const mimeType = lastOcrSource.type || "image/png";
-        const dataUrl = await fileToDataUrl(lastOcrSource);
-        const base64 = dataUrl.split(",")[1] || "";
+        const imageSource = await fileToImageBitmap(lastOcrSource);
+        const sourceWidth = imageSource.width || imageSource.naturalWidth || 0;
+        const sourceHeight = imageSource.height || imageSource.naturalHeight || 0;
+        const scaled = scaleSize(sourceWidth, sourceHeight, 1600);
+        const resizedCanvas = drawScaledToCanvas(imageSource, scaled.width, scaled.height);
+        if (typeof imageSource.close === "function") {
+          imageSource.close();
+        }
+        const base64 = canvasToJpegBase64(resizedCanvas);
         if (!base64) throw new Error("画像ファイルの変換に失敗しました。");
         return {
           inline_data: {
-            mime_type: mimeType,
+            mime_type: "image/jpeg",
             data: base64
           }
         };
@@ -438,9 +535,28 @@
       throw new Error("AI連携用の画像がありません。画像またはカメラでOCRを実行してください。");
     }
 
-    async function analyzeImageWithGemini(apiKey) {
-      const imagePart = await getAiImagePart();
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${encodeURIComponent(apiKey)}`;
+    function extractGeminiErrorMessage(responseJson) {
+      const message = responseJson?.error?.message;
+      if (!message) return "Gemini APIエラーが発生しました。";
+      if (/API key not valid|invalid api key/i.test(message)) {
+        return "APIキーが無効です。キーを確認してください。";
+      }
+      if (/PERMISSION_DENIED|API has not been used|not enabled/i.test(message)) {
+        return "API利用権限がありません。Generative Language APIの有効化とキー制限設定を確認してください。";
+      }
+      if (/quota|rate limit|RESOURCE_EXHAUSTED/i.test(message)) {
+        apiQuotaLimited = true;
+        return "無料枠またはレート制限に達しました。時間を置いて再実行してください。";
+      }
+      if (/payload|too large|request entity too large/i.test(message)) {
+        return "送信画像サイズが大きすぎる可能性があります。より小さい画像で再試行してください。";
+      }
+      return message;
+    }
+
+    async function callGeminiWithModel(modelName, apiKey, imagePart) {
+      appendApiLog(`Gemini呼び出し開始: ${modelName}`);
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(apiKey)}`;
       const response = await fetch(endpoint, {
         method: "POST",
         headers: {
@@ -459,12 +575,44 @@
         })
       });
 
+      const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Gemini API Error (${response.status}): ${errorText}`);
+        const err = new Error(extractGeminiErrorMessage(data));
+        err.status = response.status;
+        appendApiLog(`失敗: ${modelName} (${response.status}) ${err.message}`);
+        throw err;
+      }
+      appendApiLog(`成功: ${modelName}`);
+      return data;
+    }
+
+    async function analyzeImageWithGemini(apiKey) {
+      const imagePart = await getAiImagePart();
+      const modelCandidates = [
+        "gemini-2.5-flash-lite",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash"
+      ];
+
+      let data = null;
+      let lastError = null;
+      for (const model of modelCandidates) {
+        try {
+          data = await callGeminiWithModel(model, apiKey, imagePart);
+          apiStats.lastModel = model;
+          break;
+        } catch (error) {
+          lastError = error;
+          apiStats.lastError = error?.message || "unknown";
+          if (![400, 404].includes(error?.status)) {
+            throw error;
+          }
+        }
+      }
+      if (!data) {
+        throw lastError || new Error("利用可能なGeminiモデルで解析できませんでした。");
       }
 
-      const data = await response.json();
       const refined = (data?.candidates ?? [])
         .flatMap((candidate) => candidate?.content?.parts ?? [])
         .map((part) => part?.text ?? "")
@@ -1053,6 +1201,7 @@
 
       try {
         clearError();
+        appendApiLog("AI連携ボタン押下");
         isProcessing = true;
         updateAiButtonState();
         aiRefineBtn.disabled = true;
@@ -1066,9 +1215,14 @@
         const analyzedText = await analyzeImageWithGemini(apiKey);
         output.value = analyzedText;
         copyBtn.disabled = output.value.length === 0;
+        apiStats.success += 1;
+        apiQuotaLimited = false;
+        updateQuotaStatus();
         status.textContent = "完了: Gemini画像解析が完了しました。";
         setProgress(100, "Gemini画像解析が完了しました");
       } catch (error) {
+        apiStats.failed += 1;
+        updateQuotaStatus();
         showError("AI連携に失敗しました。", formatError(error));
         console.error(error);
       } finally {
@@ -1088,6 +1242,7 @@
     setProgress(0, "待機中");
     updateOverlayButtonText();
     updateAiButtonState();
+    updateQuotaStatus();
   </script>
 </body>
 </html>
