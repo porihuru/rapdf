@@ -748,6 +748,7 @@
         lastOcrSource = file;
         lastOcrType = "pdf";
         reOcrBtn.disabled = false;
+        updateAiButtonState();
       } catch (error) {
         showError("PDFの読み取りに失敗しました。", formatError(error));
         output.value = "";
@@ -758,6 +759,7 @@
         startCameraBtn.disabled = false;
         captureCameraBtn.disabled = !mediaStream;
         fileInput.value = "";
+        updateAiButtonState();
       }
     }
 
@@ -783,6 +785,7 @@
         lastOcrSource = file;
         lastOcrType = "image";
         reOcrBtn.disabled = false;
+        updateAiButtonState();
       } catch (error) {
         showError("画像OCRに失敗しました。", formatError(error));
         output.value = "";
@@ -793,6 +796,7 @@
         startCameraBtn.disabled = false;
         captureCameraBtn.disabled = !mediaStream;
         fileInput.value = "";
+        updateAiButtonState();
       }
     }
 
@@ -1124,6 +1128,7 @@
         lastOcrSource = canvas;
         lastOcrType = "camera";
         reOcrBtn.disabled = false;
+        updateAiButtonState();
       } catch (error) {
         showError("カメラ画像OCRに失敗しました。", formatError(error));
         output.value = "";
@@ -1133,6 +1138,7 @@
         fileInput.disabled = false;
         startCameraBtn.disabled = false;
         captureCameraBtn.disabled = !mediaStream;
+        updateAiButtonState();
       }
     });
 
@@ -1170,6 +1176,7 @@
           console.error(error);
         } finally {
           isProcessing = false;
+          updateAiButtonState();
         }
         return;
       }
