@@ -44,8 +44,78 @@
     .preview-wrap {
       position: relative;
       width: 100%;
-      max-width: 520px;
+      max-width: none;
+      margin-bottom: 0;
+    }
+    .preview-section {
+      display: flex;
+      gap: 12px;
+      align-items: stretch;
+      width: 100%;
+      margin-bottom: 8px;
+    }
+    .preview-pane,
+    .preview-text-wrap {
+      width: calc(50% - 6px);
+      min-width: 0;
+    }
+    .preview-text-wrap {
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      background: #fafafa;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .preview-text-title {
+      padding: 8px 10px;
+      border-bottom: 1px solid #e5e7eb;
+      font-size: 12px;
+      color: #374151;
+      font-weight: 600;
+      background: #f3f4f6;
+    }
+    .preview-side-text {
+      margin: 0;
+      padding: 10px;
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+      overflow: auto;
+      min-height: 220px;
+      flex: 1;
+    }
+    .preview-number-mark {
+      font-weight: 700;
+      text-decoration: underline;
+      text-decoration-thickness: 2px;
+    }
+    .pager-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: center;
       margin-bottom: 12px;
+    }
+    .pager-row button {
+      padding: 8px 12px;
+      font-size: 12px;
+    }
+    .pager-label {
+      font-size: 12px;
+      color: #374151;
+      min-width: 72px;
+      text-align: center;
+    }
+    @media (max-width: 860px) {
+      .preview-section {
+        flex-direction: column;
+      }
+      .preview-pane,
+      .preview-text-wrap {
+        width: 100%;
+      }
     }
     .overlay-canvas {
       position: absolute;
@@ -165,29 +235,46 @@
       border-radius: 6px;
       font-size: 12px;
     }
+    .ocr-collapsible {
+      display: none;
+    }
+    .ocr-collapsible.visible {
+      display: flex;
+    }
   </style>
 </head>
 <body>
   <div id="versionBadge" class="version-badge">v10</div>
   <main class="container">
-    <h1>PDF・画像・カメラから文字を抽出</h1>
+    <h1>入札書PDF（指定様式）を業者別に比較</h1>
     <div class="row">
-      <input id="fileInput" type="file" accept=".pdf,image/*" />
+      <input id="fileInput" type="file" accept=".pdf" multiple />
     </div>
     <div class="row">
       <button id="startCameraBtn" type="button">カメラ開始</button>
-      <button id="captureCameraBtn" type="button" disabled>撮影してOCR</button>
+      <button id="captureCameraBtn" type="button" disabled>撮影</button>
       <button id="stopCameraBtn" type="button" disabled>カメラ停止</button>
       <button id="copyBtn" type="button" disabled>抽出結果をコピー</button>
     </div>
-    <div class="preview-wrap">
-      <video id="cameraPreview" autoplay playsinline muted></video>
-      <img id="filePreview" class="preview-image" alt="ファイルプレビュー" />
-      <canvas id="capturePreview" class="preview-canvas"></canvas>
-      <canvas id="overlayCanvas" class="overlay-canvas"></canvas>
+    <div class="preview-section">
+      <div class="preview-wrap preview-pane">
+        <video id="cameraPreview" autoplay playsinline muted></video>
+        <img id="filePreview" class="preview-image" alt="ファイルプレビュー" />
+        <canvas id="capturePreview" class="preview-canvas"></canvas>
+        <canvas id="overlayCanvas" class="overlay-canvas"></canvas>
+      </div>
+      <div class="preview-text-wrap">
+        <div class="preview-text-title">連動テキスト（表示中ページ）</div>
+        <pre id="previewSideText" class="preview-side-text">PDFを選択すると、この欄に同じページの抽出テキストを表示します。</pre>
+      </div>
+    </div>
+    <div class="pager-row">
+      <button id="prevPageBtn" type="button" disabled>◀ 前ページ</button>
+      <span id="previewPageLabel" class="pager-label">- / -</span>
+      <button id="nextPageBtn" type="button" disabled>次ページ ▶</button>
     </div>
     <div class="param-panel">
-      <div class="row">
+      <div class="row ocr-collapsible">
         <label>
           言語
           <select id="langSelect">
@@ -218,7 +305,7 @@
           <input id="whitelistInput" type="text" placeholder="例: 0123456789" />
         </label>
       </div>
-      <div class="row">
+      <div class="row ocr-collapsible">
         <label>
           画像スケール
           <input id="scaleInput" type="range" min="1" max="4" value="1" step="0.5" />
@@ -254,17 +341,26 @@
           <span id="confidenceValue">0%</span>
         </label>
       </div>
-      <div class="row">
+      <div class="row ocr-collapsible">
         <button id="toggleOverlayBtn" type="button" disabled>オーバレイ表示</button>
         <button id="reOcrBtn" type="button" disabled>再OCR</button>
+      </div>
+      <div class="row">
+        <button id="toggleOcrOptionsBtn" type="button">OCRオプションを表示</button>
         <button id="aiRefineBtn" type="button" disabled>AI連携（整形）</button>
+        <button id="exportSummaryCsvBtn" type="button" disabled>サマリーCSV出力</button>
+        <button id="exportDetailCsvBtn" type="button" disabled>明細CSV出力</button>
         <label>
           Gemini APIキー
           <input id="aiApiKeyInput" type="password" placeholder="AIza..." />
         </label>
       </div>
+      <div class="row">
+        <button id="viewListModeBtn" type="button" disabled>一覧</button>
+        <button id="viewTextModeBtn" type="button" disabled>テキスト</button>
+      </div>
     </div>
-    <div id="status" class="status">PDFまたは画像を選択すると自動で抽出します。カメラも利用できます。</div>
+    <div id="status" class="status">指定様式のPDFを選択してAI連携を押すと、1PDF内の複数業者も含めて比較表を作成します。</div>
     <div class="progress-wrap">
       <progress id="progressBar" value="0" max="100"></progress>
       <div id="progressText" class="progress-text">待機中</div>
@@ -277,9 +373,10 @@
     <textarea id="output" placeholder="ここに抽出結果が表示されます" readonly></textarea>
   </main>
 
-  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/build/pdf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script>
+    const PDFJS_WORKER_SRC = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
     const fileInput = document.getElementById("fileInput");
     const startCameraBtn = document.getElementById("startCameraBtn");
     const captureCameraBtn = document.getElementById("captureCameraBtn");
@@ -288,10 +385,19 @@
     const filePreview = document.getElementById("filePreview");
     const capturePreview = document.getElementById("capturePreview");
     const overlayCanvas = document.getElementById("overlayCanvas");
+    const previewSideText = document.getElementById("previewSideText");
+    const prevPageBtn = document.getElementById("prevPageBtn");
+    const nextPageBtn = document.getElementById("nextPageBtn");
+    const previewPageLabel = document.getElementById("previewPageLabel");
     const copyBtn = document.getElementById("copyBtn");
     const toggleOverlayBtn = document.getElementById("toggleOverlayBtn");
     const reOcrBtn = document.getElementById("reOcrBtn");
+    const toggleOcrOptionsBtn = document.getElementById("toggleOcrOptionsBtn");
     const aiRefineBtn = document.getElementById("aiRefineBtn");
+    const exportSummaryCsvBtn = document.getElementById("exportSummaryCsvBtn");
+    const exportDetailCsvBtn = document.getElementById("exportDetailCsvBtn");
+    const viewListModeBtn = document.getElementById("viewListModeBtn");
+    const viewTextModeBtn = document.getElementById("viewTextModeBtn");
     const aiApiKeyInput = document.getElementById("aiApiKeyInput");
     const status = document.getElementById("status");
     const output = document.getElementById("output");
@@ -319,8 +425,12 @@
     const confidenceInput = document.getElementById("confidenceInput");
     const confidenceValue = document.getElementById("confidenceValue");
     const APP_VERSION = "v10";
+    const STRUCTURED_BATCH_SIZE = 10;
+    const BATCH_SOURCE_TEXT_MAX_CHARS = 7000;
+    const MISSING_UNIT_PRICE_TEXT = "‐";
 
     let selectedFile = null;
+    let selectedPdfFiles = [];
     let mediaStream = null;
     let isProcessing = false;
     let lastOcrSource = null;
@@ -329,6 +439,15 @@
     let overlayVisible = false;
     let lastOverlayData = null;
     let apiQuotaLimited = false;
+    let lastComparisonData = null;
+    let ocrOptionsVisible = false;
+    let comparisonViewMode = "list";
+    let previewPdfDoc = null;
+    let previewPdfPageCount = 0;
+    let previewPdfCurrentPage = 1;
+    let previewPageTextCache = new Map();
+    let previewGeminiPageTextMap = {};
+    let previewPdfFileName = "";
 
     const apiStats = {
       success: 0,
@@ -354,9 +473,85 @@
     }
 
     function updateAiButtonState() {
-      const hasImageSource = (lastOcrType === "image" || lastOcrType === "camera") && Boolean(lastOcrSource);
+      const hasBatchPdfSource = selectedPdfFiles.length > 0;
+      const hasLegacySource = (lastOcrType === "image" || lastOcrType === "camera" || lastOcrType === "pdf") && Boolean(lastOcrSource);
+      const hasSource = hasBatchPdfSource || hasLegacySource;
       const hasKey = Boolean(aiApiKeyInput.value && aiApiKeyInput.value.trim().length > 0);
-      aiRefineBtn.disabled = !hasImageSource || !hasKey || isProcessing;
+      aiRefineBtn.disabled = !hasSource || !hasKey || isProcessing;
+    }
+
+    function setExportButtonsState(enabled) {
+      exportSummaryCsvBtn.disabled = !enabled;
+      exportDetailCsvBtn.disabled = !enabled;
+      updateComparisonModeButtons();
+    }
+
+    function updateComparisonModeButtons() {
+      const hasComparison = Boolean(lastComparisonData);
+      if (!hasComparison) {
+        viewListModeBtn.disabled = true;
+        viewTextModeBtn.disabled = true;
+        return;
+      }
+      viewListModeBtn.disabled = comparisonViewMode === "list";
+      viewTextModeBtn.disabled = comparisonViewMode === "text";
+    }
+
+    function buildComparisonCsvLikeText(comparisonData) {
+      if (!comparisonData || !comparisonData.vendorCount) {
+        return "比較対象データがありません。";
+      }
+
+      const rawText = String(comparisonData.rawExtractedText || "").trim();
+      if (rawText) {
+        return rawText;
+      }
+
+      const header = ["連番", "品目", ...comparisonData.vendorNames];
+      const lines = [header.join(",")];
+
+      for (const row of comparisonData.detailRows) {
+        const itemLabel = row.spec && row.spec !== "-"
+          ? `${row.itemName}（${row.spec}）`
+          : row.itemName;
+        const sequenceLabel = row.sequence || "-";
+        const cells = comparisonData.vendorNames.map((name) => {
+          const value = row.unitPricesByVendor?.[name];
+          return Number.isFinite(value) ? String(value) : MISSING_UNIT_PRICE_TEXT;
+        });
+        lines.push([sequenceLabel, itemLabel, ...cells].join(","));
+      }
+
+      return lines.join("\n");
+    }
+
+    function renderComparisonOutput() {
+      if (!lastComparisonData) {
+        return;
+      }
+      output.value = comparisonViewMode === "text"
+        ? buildComparisonCsvLikeText(lastComparisonData)
+        : buildComparisonReport(lastComparisonData);
+      copyBtn.disabled = output.value.length === 0;
+      updateComparisonModeButtons();
+    }
+
+    function setComparisonViewMode(mode) {
+      if (!["list", "text"].includes(mode)) {
+        return;
+      }
+      comparisonViewMode = mode;
+      renderComparisonOutput();
+    }
+
+    function updateOcrOptionsVisibility() {
+      const sections = document.querySelectorAll(".ocr-collapsible");
+      sections.forEach((section) => {
+        section.classList.toggle("visible", ocrOptionsVisible);
+      });
+      toggleOcrOptionsBtn.textContent = ocrOptionsVisible
+        ? "OCRオプションを閉じる"
+        : "OCRオプションを表示";
     }
 
     versionBadge.textContent = APP_VERSION;
@@ -384,7 +579,7 @@
     aiApiKeyInput.addEventListener("input", updateAiButtonState);
 
     if (window.pdfjsLib?.GlobalWorkerOptions) {
-      window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/build/pdf.worker.min.js";
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_SRC;
     }
 
     function hideAllPreviews() {
@@ -394,27 +589,193 @@
       overlayCanvas.style.display = "none";
     }
 
-    function showFilePreview(file) {
-      if (!file?.type?.startsWith("image/")) {
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&apos;");
+    }
+
+    function highlightPreviewNumericTokens(text) {
+      const escaped = escapeHtml(text);
+      return escaped.replace(
+        /([+＋-－]?(?:[0-9０-９]{1,3}(?:[,，][0-9０-９]{3})+|[0-9０-９]+)(?:[.．][0-9０-９]+)?)/g,
+        (token) => {
+          const digitsOnly = token.replace(/[^0-9０-９]/g, "");
+          const hasCommaGroup = /[0-9０-９]{1,3}[,，][0-9０-９]{3}/.test(token);
+          const isPriceLike = hasCommaGroup || digitsOnly.length >= 3;
+          return isPriceLike ? `<span class="preview-number-mark">${token}</span>` : token;
+        }
+      );
+    }
+
+    function setPreviewSideText(text) {
+      const normalized = String(text || "").trim() || "このページの抽出テキストはありません。";
+      previewSideText.innerHTML = highlightPreviewNumericTokens(normalized);
+    }
+
+    function syncPreviewTextHeight() {
+      const previewHeight = capturePreview.clientHeight || filePreview.clientHeight || cameraPreview.clientHeight || 0;
+      previewSideText.style.height = previewHeight > 0 ? `${previewHeight}px` : "220px";
+    }
+
+    function resetPdfPreviewState() {
+      previewPdfDoc = null;
+      previewPdfPageCount = 0;
+      previewPdfCurrentPage = 1;
+      previewPageTextCache = new Map();
+      previewGeminiPageTextMap = {};
+      previewPdfFileName = "";
+      previewPageLabel.textContent = "- / -";
+      prevPageBtn.disabled = true;
+      nextPageBtn.disabled = true;
+      setPreviewSideText("PDFを選択すると、この欄に同じページの抽出テキストを表示します。");
+      syncPreviewTextHeight();
+    }
+
+    function parsePageTextMap(rawText) {
+      const text = String(rawText || "");
+      if (!text.trim()) {
+        return {};
+      }
+      const map = {};
+      const regex = /---\s*Page\s*(\d+)\s*---\s*([\s\S]*?)(?=(?:\n\s*---\s*Page\s*\d+\s*---)|$)/gi;
+      let hasMatch = false;
+      let match;
+      while ((match = regex.exec(text)) !== null) {
+        hasMatch = true;
+        const pageNumber = Number(match[1]);
+        map[pageNumber] = String(match[2] || "").trim();
+      }
+      if (!hasMatch) {
+        map[1] = text.trim();
+      }
+      return map;
+    }
+
+    function updatePdfPagerButtons() {
+      if (!previewPdfDoc || previewPdfPageCount <= 0) {
+        prevPageBtn.disabled = true;
+        nextPageBtn.disabled = true;
+        previewPageLabel.textContent = "- / -";
         return;
       }
+      prevPageBtn.disabled = previewPdfCurrentPage <= 1;
+      nextPageBtn.disabled = previewPdfCurrentPage >= previewPdfPageCount;
+      previewPageLabel.textContent = `${previewPdfCurrentPage} / ${previewPdfPageCount}`;
+    }
+
+    async function extractPageTextForPreview(pdf, pageNumber) {
+      const page = await pdf.getPage(pageNumber);
+      const textContent = await page.getTextContent();
+      const items = Array.isArray(textContent?.items) ? textContent.items : [];
+      const lines = items
+        .map((item) => String(item?.str || ""))
+        .filter((line) => line.trim().length > 0);
+      return lines.join("\n").trim();
+    }
+
+    async function updatePreviewSideTextByPage(pageNumber) {
+      const geminiText = previewGeminiPageTextMap[pageNumber];
+      if (geminiText) {
+        setPreviewSideText(geminiText);
+        syncPreviewTextHeight();
+        return;
+      }
+
+      if (!previewPdfDoc) {
+        setPreviewSideText("");
+        syncPreviewTextHeight();
+        return;
+      }
+
+      if (!previewPageTextCache.has(pageNumber)) {
+        try {
+          const text = await extractPageTextForPreview(previewPdfDoc, pageNumber);
+          previewPageTextCache.set(pageNumber, text);
+        } catch {
+          previewPageTextCache.set(pageNumber, "");
+        }
+      }
+
+      setPreviewSideText(previewPageTextCache.get(pageNumber) || "");
+      syncPreviewTextHeight();
+    }
+
+    function updatePreviewGeminiText(rawText, fileName = "") {
+      const sameFile = !fileName || !previewPdfFileName || fileName === previewPdfFileName;
+      if (!sameFile) {
+        return;
+      }
+      previewGeminiPageTextMap = parsePageTextMap(rawText);
+      updatePreviewSideTextByPage(previewPdfCurrentPage);
+    }
+
+    function showFilePreview(file) {
+      if (!file) {
+        return;
+      }
+      resetPdfPreviewState();
       const objectUrl = URL.createObjectURL(file);
       filePreview.src = objectUrl;
       filePreview.onload = () => {
         URL.revokeObjectURL(objectUrl);
+        syncPreviewTextHeight();
         if (overlayVisible) drawOverlay();
+      };
+      filePreview.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
       };
       hideAllPreviews();
       filePreview.style.display = "block";
     }
 
-    function showCanvasPreview(canvas) {
-      capturePreview.width = canvas.width;
-      capturePreview.height = canvas.height;
-      const context = capturePreview.getContext("2d");
-      context.drawImage(canvas, 0, 0);
-      hideAllPreviews();
-      capturePreview.style.display = "block";
+    async function renderPdfPreviewPage(pageNumber) {
+      if (!previewPdfDoc) {
+        return;
+      }
+      const safePage = Math.max(1, Math.min(previewPdfPageCount, Number(pageNumber) || 1));
+      const targetPage = await previewPdfDoc.getPage(safePage);
+      const baseViewport = targetPage.getViewport({ scale: 1 });
+      const maxPreviewWidth = 900;
+      const scale = baseViewport.width > 0
+        ? Math.min(2, Math.max(0.75, maxPreviewWidth / baseViewport.width))
+        : 1;
+      const viewport = targetPage.getViewport({ scale });
+
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.ceil(viewport.width);
+      canvas.height = Math.ceil(viewport.height);
+      const context = canvas.getContext("2d");
+      await targetPage.render({ canvasContext: context, viewport }).promise;
+      previewPdfCurrentPage = safePage;
+      showCanvasPreview(canvas);
+      updatePdfPagerButtons();
+      await updatePreviewSideTextByPage(safePage);
+    }
+
+    async function renderPdfPreview(pdf, fileName = "") {
+      previewPdfDoc = pdf;
+      previewPdfPageCount = Number(pdf?.numPages || 0);
+      previewPdfCurrentPage = 1;
+      previewPageTextCache = new Map();
+      previewGeminiPageTextMap = {};
+      previewPdfFileName = String(fileName || "");
+      updatePdfPagerButtons();
+      await renderPdfPreviewPage(1);
+    }
+
+    async function goPreviewPage(offset) {
+      if (!previewPdfDoc || previewPdfPageCount <= 0) {
+        return;
+      }
+      const nextPage = Math.max(1, Math.min(previewPdfPageCount, previewPdfCurrentPage + offset));
+      if (nextPage === previewPdfCurrentPage) {
+        return;
+      }
+      await renderPdfPreviewPage(nextPage);
     }
 
     function getOcrParams() {
@@ -445,10 +806,67 @@
         "あなたは画像OCRアシスタントです。",
         "目的: 画像内の文字を抽出し、読みやすく整形して返してください。",
         "ルール:",
-        "- 不明箇所は断定せず、判読不能は [判読不能] と記載",
+        "- 判読不能は本当に読めない最小箇所のみ [判読不能] と記載（過剰に使わない）",
         "- 数値・日付・金額は最優先で保持",
         "- 説明や注釈は不要。抽出テキスト本文のみ返す"
       ].join("\n");
+    }
+
+    function buildAiTextRefinePrompt(sourceText) {
+      return [
+        "あなたはOCRテキスト整形アシスタントです。",
+        "目的: PDFから抽出されたテキストを読みやすく整形して返してください。",
+        "ルール:",
+        "- 判読不能は本当に読めない最小箇所のみ [判読不能] と記載（過剰に使わない）",
+        "- 数値・日付・金額は最優先で保持",
+        "- 説明や注釈は不要。整形済みテキスト本文のみ返す",
+        "",
+        "以下が抽出テキストです:",
+        sourceText
+      ].join("\n");
+    }
+
+    function buildAiPdfPagePrompt(pageNumber, totalPages) {
+      return [
+        "あなたはOCRアシスタントです。",
+        `対象はPDFの ${pageNumber}/${totalPages} ページです。`,
+        "目的: 画像内の日本語テキストをできるだけ忠実に抽出してください。",
+        "ルール:",
+        "- 元の順序を維持して出力",
+        "- 数値・日付・金額・記号は可能な限り保持",
+        "- 説明や注釈は不要。抽出テキスト本文のみ返す"
+      ].join("\n");
+    }
+
+    function isLowQualityAiResult(aiText, sourceText) {
+      const ai = String(aiText || "").trim();
+      if (!ai) {
+        return true;
+      }
+
+      const unreadableMatches = ai.match(/\[判読不能\]/g) || [];
+      const unreadableCount = unreadableMatches.length;
+      const withoutUnreadable = ai.replace(/\[判読不能\]/g, "").replace(/\s+/g, "");
+      if (!withoutUnreadable) {
+        return true;
+      }
+
+      const source = String(sourceText || "").replace(/\s+/g, "");
+      if (source.length >= 20) {
+        const minUsefulLength = Math.max(10, Math.floor(source.length * 0.15));
+        if (withoutUnreadable.length < minUsefulLength) {
+          return true;
+        }
+      }
+
+      if (unreadableCount >= 2) {
+        const approxUnreadableChars = unreadableCount * 6;
+        if (approxUnreadableChars >= Math.floor(ai.length * 0.6)) {
+          return true;
+        }
+      }
+
+      return false;
     }
 
     function scaleSize(width, height, maxSide = 1600) {
@@ -532,6 +950,20 @@
         };
       }
 
+      if (lastOcrType === "pdf" && lastImageData?.canvas) {
+        const srcCanvas = lastImageData.canvas;
+        const scaled = scaleSize(srcCanvas.width, srcCanvas.height, 1600);
+        const resizedCanvas = drawScaledToCanvas(srcCanvas, scaled.width, scaled.height);
+        const base64 = canvasToJpegBase64(resizedCanvas);
+        if (!base64) throw new Error("PDFプレビュー画像の変換に失敗しました。");
+        return {
+          inline_data: {
+            mime_type: "image/jpeg",
+            data: base64
+          }
+        };
+      }
+
       throw new Error("AI連携用の画像がありません。画像またはカメラでOCRを実行してください。");
     }
 
@@ -548,32 +980,53 @@
         apiQuotaLimited = true;
         return "無料枠またはレート制限に達しました。時間を置いて再実行してください。";
       }
+      if (/high demand|overloaded|temporarily unavailable|try again later/i.test(message)) {
+        return "Geminiの混雑により一時的に失敗しました。少し時間を置いて再実行してください。";
+      }
       if (/payload|too large|request entity too large/i.test(message)) {
         return "送信画像サイズが大きすぎる可能性があります。より小さい画像で再試行してください。";
       }
       return message;
     }
 
-    async function callGeminiWithModel(modelName, apiKey, imagePart) {
+    function isTransientGeminiError(error) {
+      const status = Number(error?.status || 0);
+      const message = String(error?.message || "");
+      if ([408, 409, 429, 500, 502, 503, 504].includes(status)) {
+        return true;
+      }
+      return /high demand|overloaded|temporarily unavailable|try again later|rate limit|timeout|failed to fetch|networkerror|load failed/i.test(message);
+    }
+
+    function sleep(ms) {
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    async function callGeminiWithModel(modelName, apiKey, parts) {
       appendApiLog(`Gemini呼び出し開始: ${modelName}`);
       const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(apiKey)}`;
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              { text: buildAiRefinePrompt() },
-              imagePart
-            ]
-          }],
-          generationConfig: {
-            temperature: 0.2
-          }
-        })
-      });
+      let response;
+      try {
+        response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            contents: [{
+              parts
+            }],
+            generationConfig: {
+              temperature: 0.2
+            }
+          })
+        });
+      } catch (fetchError) {
+        const err = new Error("Gemini APIへ接続できませんでした。ネットワーク接続・VPN・プロキシ・ブラウザ拡張の通信ブロックを確認してください。");
+        err.status = 0;
+        appendApiLog(`失敗: ${modelName} (network) ${fetchError?.message || fetchError}`);
+        throw err;
+      }
 
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -586,8 +1039,34 @@
       return data;
     }
 
+    async function callGeminiWithRetry(modelName, apiKey, parts) {
+      const retryDelays = [700, 1600, 3000];
+      let lastError = null;
+
+      for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
+        try {
+          if (attempt > 0) {
+            appendApiLog(`再試行: ${modelName} (${attempt}/${retryDelays.length})`);
+          }
+          return await callGeminiWithModel(modelName, apiKey, parts);
+        } catch (error) {
+          lastError = error;
+          if (!isTransientGeminiError(error) || attempt === retryDelays.length) {
+            throw error;
+          }
+          await sleep(retryDelays[attempt]);
+        }
+      }
+
+      throw lastError || new Error("Gemini APIエラーが発生しました。");
+    }
+
     async function analyzeImageWithGemini(apiKey) {
       const imagePart = await getAiImagePart();
+      const parts = [
+        { text: buildAiRefinePrompt() },
+        imagePart
+      ];
       const modelCandidates = [
         "gemini-2.5-flash-lite",
         "gemini-2.5-flash",
@@ -598,13 +1077,966 @@
       let lastError = null;
       for (const model of modelCandidates) {
         try {
-          data = await callGeminiWithModel(model, apiKey, imagePart);
+          data = await callGeminiWithRetry(model, apiKey, parts);
           apiStats.lastModel = model;
           break;
         } catch (error) {
           lastError = error;
           apiStats.lastError = error?.message || "unknown";
-          if (![400, 404].includes(error?.status)) {
+          if (![400, 404].includes(error?.status) && !isTransientGeminiError(error)) {
+            throw error;
+          }
+        }
+      }
+      if (!data) {
+        throw lastError || new Error("利用可能なGeminiモデルで解析できませんでした。");
+      }
+
+      const refined = (data?.candidates ?? [])
+        .flatMap((candidate) => candidate?.content?.parts ?? [])
+        .map((part) => part?.text ?? "")
+        .join("\n")
+        .trim();
+
+      if (!refined) {
+        throw new Error("AIの応答が空でした。もう一度お試しください。");
+      }
+
+      return refined;
+    }
+
+    async function analyzeImagePartWithGemini(apiKey, imagePart, promptText) {
+      const parts = [
+        { text: promptText || buildAiRefinePrompt() },
+        imagePart
+      ];
+      const modelCandidates = [
+        "gemini-2.5-flash-lite",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash"
+      ];
+
+      let data = null;
+      let lastError = null;
+      for (const model of modelCandidates) {
+        try {
+          data = await callGeminiWithRetry(model, apiKey, parts);
+          apiStats.lastModel = model;
+          break;
+        } catch (error) {
+          lastError = error;
+          apiStats.lastError = error?.message || "unknown";
+          if (![400, 404].includes(error?.status) && !isTransientGeminiError(error)) {
+            throw error;
+          }
+        }
+      }
+      if (!data) {
+        throw lastError || new Error("利用可能なGeminiモデルで解析できませんでした。");
+      }
+
+      const refined = (data?.candidates ?? [])
+        .flatMap((candidate) => candidate?.content?.parts ?? [])
+        .map((part) => part?.text ?? "")
+        .join("\n")
+        .trim();
+
+      if (!refined) {
+        throw new Error("AIの応答が空でした。もう一度お試しください。");
+      }
+      return refined;
+    }
+
+    async function analyzePdfWithGemini(apiKey, file) {
+      if (!window.pdfjsLib?.getDocument) {
+        throw new Error("PDF.jsの読み込みに失敗しました。通信環境を確認してください。");
+      }
+      const data = await file.arrayBuffer();
+      const loadingTask = window.pdfjsLib.getDocument({ data });
+      const pdf = await loadingTask.promise;
+      const maxPages = Math.min(pdf.numPages, 50);
+      const parts = [{
+        text: [
+          "あなたはOCRアシスタントです。",
+          `対象はPDF全${maxPages}ページです。`,
+          "目的: 各ページの日本語テキストをできるだけ忠実に抽出してください。",
+          "出力形式: ページ順に、各ページの先頭に `--- Page N ---` を付けること。",
+          "数値・日付・金額・記号は可能な限り保持し、説明や注釈は不要です。"
+        ].join("\n")
+      }];
+
+      for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
+        const page = await pdf.getPage(pageNum);
+        const viewport = page.getViewport({ scale: 2 });
+        const pageCanvas = document.createElement("canvas");
+        pageCanvas.width = Math.ceil(viewport.width);
+        pageCanvas.height = Math.ceil(viewport.height);
+        const pageContext = pageCanvas.getContext("2d");
+        await page.render({ canvasContext: pageContext, viewport }).promise;
+
+        if (pageNum === 1) {
+          showCanvasPreview(pageCanvas);
+        }
+
+        const scaled = scaleSize(pageCanvas.width, pageCanvas.height, 1600);
+        const resizedCanvas = drawScaledToCanvas(pageCanvas, scaled.width, scaled.height);
+        const base64 = canvasToJpegBase64(resizedCanvas);
+        if (!base64) {
+          continue;
+        }
+
+        parts.push({ inline_data: { mime_type: "image/jpeg", data: base64 } });
+        setProgress((pageNum / maxPages) * 100, `Gemini送信用にPDFを準備中... ${pageNum}/${maxPages}ページ`);
+      }
+
+      if (parts.length <= 1) {
+        throw new Error("PDF解析結果が空でした。");
+      }
+
+      const modelCandidates = ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.0-flash"];
+      let dataResult = null;
+      let lastError = null;
+      for (const model of modelCandidates) {
+        try {
+          dataResult = await callGeminiWithRetry(model, apiKey, parts);
+          apiStats.lastModel = model;
+          break;
+        } catch (error) {
+          lastError = error;
+          apiStats.lastError = error?.message || "unknown";
+          if (![400, 404].includes(error?.status) && !isTransientGeminiError(error)) {
+            throw error;
+          }
+        }
+      }
+      if (!dataResult) {
+        throw lastError || new Error("利用可能なGeminiモデルで解析できませんでした。");
+      }
+
+      const extracted = (dataResult?.candidates ?? [])
+        .flatMap((candidate) => candidate?.content?.parts ?? [])
+        .map((part) => part?.text ?? "")
+        .join("\n")
+        .trim();
+
+      if (!extracted) {
+        throw new Error("PDF解析結果が空でした。");
+      }
+      updatePreviewGeminiText(extracted, file?.name || "");
+      return extracted;
+    }
+
+    function parseJsonFromText(text) {
+      const raw = String(text || "").trim();
+      if (!raw) return null;
+      try {
+        return JSON.parse(raw);
+      } catch {}
+
+      const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+      if (fenced?.[1]) {
+        try {
+          return JSON.parse(fenced[1]);
+        } catch {}
+      }
+
+      const first = raw.indexOf("{");
+      const last = raw.lastIndexOf("}");
+      if (first >= 0 && last > first) {
+        try {
+          return JSON.parse(raw.slice(first, last + 1));
+        } catch {}
+      }
+      return null;
+    }
+
+    function parseLooseNumber(value) {
+      if (typeof value === "number" && Number.isFinite(value)) {
+        return value;
+      }
+      const raw = String(value ?? "")
+        .replace(/[０-９]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xFEE0))
+        .replace(/[－ー―]/g, "-")
+        .replace(/[＋]/g, "+")
+        .replace(/[，]/g, ",")
+        .replace(/[．]/g, ".")
+        .replace(/[（]/g, "(")
+        .replace(/[）]/g, ")")
+        .replace(/[△▲]/g, "-")
+        .trim();
+
+      const isParenthesizedNegative = /^\(.*\)$/.test(raw);
+      const normalized = raw
+        .replace(/[￥¥,\s]/g, "")
+        .replace(/円|税抜|税込|外税|内税/g, "")
+        .replace(/[^0-9.+-]/g, "");
+      if (!normalized) return null;
+      const num = Number(isParenthesizedNegative ? `-${normalized.replace(/[()]/g, "")}` : normalized);
+      return Number.isFinite(num) ? num : null;
+    }
+
+    function parseQuantityNumber(value) {
+      const num = parseLooseNumber(value);
+      if (Number.isFinite(num) && num >= 0) {
+        return num;
+      }
+      return null;
+    }
+
+    function normalizeVendorName(name, fallbackName) {
+      const value = String(name || "").trim();
+      if (value) return value;
+      return String(fallbackName || "").replace(/\.pdf$/i, "").trim() || "業者名不明";
+    }
+
+    function normalizeMatchText(value) {
+      return String(value ?? "")
+        .replace(/[０-９]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xFEE0))
+        .replace(/[－ー―]/g, "-")
+        .replace(/[，]/g, ",")
+        .replace(/[．]/g, ".")
+        .replace(/[￥¥]/g, "")
+        .replace(/円|税抜|税込|外税|内税/g, "")
+        .replace(/\s+/g, "")
+        .trim();
+    }
+
+    function hasNumericToken(value) {
+      return /[0-9０-９]/.test(String(value ?? ""));
+    }
+
+    function normalizeLineItem(item, sourceText = "") {
+      const row = item && typeof item === "object" ? item : {};
+      const sequence = String(
+        row.sequence
+        ?? row.serial
+        ?? row.no
+        ?? row.number
+        ?? row.lineNo
+        ?? ""
+      )
+        .replace(/[０-９]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xFEE0))
+        .replace(/[^0-9]/g, "")
+        .trim();
+      const itemName = String(row.itemName ?? row.name ?? "").trim();
+      const spec = String(row.spec ?? row.standard ?? "").trim();
+      const quantity = row.quantity
+        ?? row.qty
+        ?? row.plannedQuantity
+        ?? row.scheduledQuantity
+        ?? row.expectedQuantity
+        ?? "";
+      const unit = String(row.unit ?? "").trim();
+      const parsedUnitPrice = parseLooseNumber(
+        row.unitPrice
+        ?? row.handwrittenUnitPrice
+        ?? row.unitPriceExclTax
+        ?? row.priceExclTax
+        ?? null
+      );
+      const unitPriceRaw = String(
+        row.unitPriceRaw
+        ?? row.handwrittenUnitPriceRaw
+        ?? row.unitPriceEvidence
+        ?? row.unitPriceText
+        ?? ""
+      ).trim();
+      const normalizedSource = normalizeMatchText(sourceText);
+      const normalizedUnitPriceRaw = normalizeMatchText(unitPriceRaw);
+      const isEvidenceMatched = Boolean(
+        normalizedUnitPriceRaw
+        && hasNumericToken(unitPriceRaw)
+        && normalizedSource.includes(normalizedUnitPriceRaw)
+      );
+      const unitPrice = Number.isFinite(parsedUnitPrice) && isEvidenceMatched
+        ? parsedUnitPrice
+        : null;
+      const parsedAmount = parseLooseNumber(
+        row.amount
+        ?? row.total
+        ?? row.amountExclTax
+        ?? row.subtotalExclTax
+        ?? null
+      );
+      const quantityNum = parseQuantityNumber(quantity);
+      const amount = Number.isFinite(parsedAmount)
+        ? parsedAmount
+        : (Number.isFinite(unitPrice) && Number.isFinite(quantityNum)
+          ? unitPrice * quantityNum
+          : (Number.isFinite(unitPrice) ? unitPrice : null));
+      const key = `${itemName}｜${spec}`.trim();
+      return {
+        key,
+        sequence,
+        itemName,
+        spec,
+        quantity,
+        unit,
+        unitPrice,
+        amount
+      };
+    }
+
+    async function extractBidSheetStructuredWithGemini(apiKey, sourceText, fileName) {
+      const prompt = [
+        "あなたは入札書（指定様式）抽出アシスタントです。",
+        "以下のテキストを読み、必ずJSONオブジェクトのみを返してください。説明文は出力しないでください。",
+        "様式ルール: 入札者・住所・氏名の欄は手書き、明細は 連番・品名・単位・予定数量・単価 の列構成で、手書きは主に単価です。",
+        "vendorName は入札者欄または氏名欄から抽出してください（住所を業者名にしない）。",
+        "lineItems の sequence は連番、quantity は予定数量、unitPrice は手書きの単価を優先して抽出してください。",
+        "unitPrice は必ず数字（可能なら数値型）で返してください。通貨記号や文字は含めないでください。",
+        "lineItems ごとに unitPriceRaw（元の手書き単価文字列）を必ず返してください。",
+        "単価が空欄・判別不能・あいまいな場合は unitPrice を null にしてください。推測で数値を入れてはいけません。",
+        "対象様式でなければ isTargetForm を false にし、reason に理由を入れてください。",
+        "このアプリでは金額はすべて税抜きで扱います。税込・税額・値引きは抽出不要です。",
+        "数値は可能なら数値型で返し、難しければ文字列でも可。",
+        "lineItems は明細配列です。明細ごとに税抜き金額 amount を必ず優先して抽出してください。",
+        "amount が見つからない場合は、税抜の単価しか無ければ amount に同じ値を入れてください。",
+        "JSONスキーマ:",
+        "{",
+        '  "isTargetForm": true,',
+        '  "reason": "",',
+        '  "vendorName": "",',
+        '  "projectName": "",',
+        '  "quoteDate": "",',
+        '  "validUntil": "",',
+        '  "lineItems": [',
+        '    { "sequence": "", "itemName": "", "spec": "", "quantity": "", "unit": "", "unitPrice": null, "unitPriceRaw": "", "amount": null }',
+        "  ]",
+        "}",
+        "",
+        `ファイル名: ${fileName}`,
+        "",
+        "抽出テキスト:",
+        sourceText
+      ].join("\n");
+
+      const parts = [{ text: prompt }];
+      const modelCandidates = [
+        "gemini-2.5-flash-lite",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash"
+      ];
+
+      let data = null;
+      let lastError = null;
+      for (const model of modelCandidates) {
+        try {
+          data = await callGeminiWithRetry(model, apiKey, parts);
+          apiStats.lastModel = model;
+          break;
+        } catch (error) {
+          lastError = error;
+          apiStats.lastError = error?.message || "unknown";
+          if (![400, 404].includes(error?.status) && !isTransientGeminiError(error)) {
+            throw error;
+          }
+        }
+      }
+      if (!data) {
+        throw lastError || new Error("構造化抽出に利用可能なGeminiモデルがありません。");
+      }
+
+      const text = (data?.candidates ?? [])
+        .flatMap((candidate) => candidate?.content?.parts ?? [])
+        .map((part) => part?.text ?? "")
+        .join("\n")
+        .trim();
+
+      const parsed = parseJsonFromText(text);
+      if (!parsed || typeof parsed !== "object") {
+        throw new Error("構造化抽出JSONの解析に失敗しました。");
+      }
+      return parsed;
+    }
+
+    async function extractBidVendorsFromTextWithGemini(apiKey, sourceText, fileName) {
+      const prompt = [
+        "あなたは入札書（指定様式）抽出アシスタントです。",
+        "以下のテキストを読み、必ずJSONオブジェクトのみを返してください。説明文は出力しないでください。",
+        "様式ルール: 入札者・住所・氏名の欄は手書き、明細は 連番・品名・単位・予定数量・単価 の列構成で、手書きは主に単価です。",
+        "vendorName は入札者欄または氏名欄から抽出してください（住所を業者名にしない）。",
+        "lineItems の sequence は連番、quantity は予定数量、unitPrice は手書きの単価を優先して抽出してください。",
+        "unitPrice は必ず数字（可能なら数値型）で返してください。通貨記号や文字は含めないでください。",
+        "lineItems ごとに unitPriceRaw（元の手書き単価文字列）を必ず返してください。",
+        "単価が空欄・判別不能・あいまいな場合は unitPrice を null にしてください。推測で数値を入れてはいけません。",
+        "このファイルには複数業者が含まれる可能性があります。業者ごとに vendors 配列へ分けてください。",
+        "このアプリでは金額はすべて税抜きで扱います。税込・税額・値引きは抽出不要です。",
+        "lineItems の amount は税抜き金額を優先抽出してください。",
+        "JSONスキーマ:",
+        "{",
+        '  "vendors": [',
+        '    {',
+        '      "isTargetForm": true,',
+        '      "reason": "",',
+        '      "vendorName": "",',
+        '      "projectName": "",',
+        '      "quoteDate": "",',
+        '      "validUntil": "",',
+        '      "lineItems": [',
+        '        { "sequence": "", "itemName": "", "spec": "", "quantity": "", "unit": "", "unitPrice": null, "unitPriceRaw": "", "amount": null }',
+        "      ]",
+        "    }",
+        "  ]",
+        "}",
+        "",
+        `ファイル名: ${fileName}`,
+        "",
+        "抽出テキスト:",
+        sourceText
+      ].join("\n");
+
+      const parts = [{ text: prompt }];
+      const modelCandidates = [
+        "gemini-2.5-flash-lite",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash"
+      ];
+
+      let data = null;
+      let lastError = null;
+      for (const model of modelCandidates) {
+        try {
+          data = await callGeminiWithRetry(model, apiKey, parts);
+          apiStats.lastModel = model;
+          break;
+        } catch (error) {
+          lastError = error;
+          apiStats.lastError = error?.message || "unknown";
+          if (![400, 404].includes(error?.status) && !isTransientGeminiError(error)) {
+            throw error;
+          }
+        }
+      }
+      if (!data) {
+        throw lastError || new Error("複数業者抽出に利用可能なGeminiモデルがありません。");
+      }
+
+      const text = (data?.candidates ?? [])
+        .flatMap((candidate) => candidate?.content?.parts ?? [])
+        .map((part) => part?.text ?? "")
+        .join("\n")
+        .trim();
+
+      const parsed = parseJsonFromText(text);
+      const vendorList = Array.isArray(parsed?.vendors) ? parsed.vendors : [];
+      if (!vendorList.length) {
+        throw new Error("複数業者抽出JSONの解析に失敗しました。");
+      }
+      return vendorList;
+    }
+
+    function splitIntoChunks(values, chunkSize) {
+      const chunks = [];
+      const size = Math.max(1, Number(chunkSize) || 1);
+      for (let index = 0; index < values.length; index += size) {
+        chunks.push(values.slice(index, index + size));
+      }
+      return chunks;
+    }
+
+    async function extractBidSheetsStructuredBatchWithGemini(apiKey, sources) {
+      const normalizedSources = Array.isArray(sources)
+        ? sources.map((source) => ({
+            fileName: String(source?.fileName || "").trim(),
+            sourceText: String(source?.sourceText || "")
+          })).filter((source) => source.fileName && source.sourceText.trim())
+        : [];
+
+      if (!normalizedSources.length) {
+        return [];
+      }
+
+      const payload = normalizedSources.map((source) => ({
+        fileName: source.fileName,
+        sourceText: source.sourceText.slice(0, BATCH_SOURCE_TEXT_MAX_CHARS)
+      }));
+
+      const prompt = [
+        "あなたは入札書（指定様式）抽出アシスタントです。",
+        "複数の業者データをまとめて処理します。必ずJSONオブジェクトのみを返してください。説明文やMarkdownは禁止です。",
+        "様式ルール: 入札者・住所・氏名の欄は手書き、明細は 連番・品名・単位・予定数量・単価 の列構成で、手書きは主に単価です。",
+        "vendorName は入札者欄または氏名欄から抽出してください（住所を業者名にしない）。",
+        "lineItems の sequence は連番、quantity は予定数量、unitPrice は手書きの単価を優先して抽出してください。",
+        "unitPrice は必ず数字（可能なら数値型）で返してください。通貨記号や文字は含めないでください。",
+        "lineItems ごとに unitPriceRaw（元の手書き単価文字列）を必ず返してください。",
+        "単価が空欄・判別不能・あいまいな場合は unitPrice を null にしてください。推測で数値を入れてはいけません。",
+        "各ファイルには複数業者が含まれる可能性があります。",
+        "このアプリでは金額はすべて税抜きで扱います。税込・税額・値引きは抽出不要です。",
+        "lineItems の amount は税抜き金額として必ず優先抽出してください。",
+        "amount が見つからない場合は、税抜の単価しか無ければ amount に同じ値を入れてください。",
+        "入力ごとに1件の結果を files 配列に返してください。fileName は入力の fileName と一致させてください。",
+        "JSONスキーマ:",
+        "{",
+        '  "files": [',
+        '    {',
+        '      "fileName": "",',
+        '      "vendors": [',
+        '        {',
+        '          "isTargetForm": true,',
+        '          "reason": "",',
+        '          "vendorName": "",',
+        '          "projectName": "",',
+        '          "quoteDate": "",',
+        '          "validUntil": "",',
+        '          "lineItems": [',
+        '            { "sequence": "", "itemName": "", "spec": "", "quantity": "", "unit": "", "unitPrice": null, "unitPriceRaw": "", "amount": null }',
+        "          ]",
+        "        }",
+        "      ]",
+        "    }",
+        "  ]",
+        "}",
+        "",
+        "入力データ(JSON):",
+        JSON.stringify(payload)
+      ].join("\n");
+
+      const parts = [{ text: prompt }];
+      const modelCandidates = [
+        "gemini-2.5-flash-lite",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash"
+      ];
+
+      let data = null;
+      let lastError = null;
+      for (const model of modelCandidates) {
+        try {
+          data = await callGeminiWithRetry(model, apiKey, parts);
+          apiStats.lastModel = model;
+          break;
+        } catch (error) {
+          lastError = error;
+          apiStats.lastError = error?.message || "unknown";
+          if (![400, 404].includes(error?.status) && !isTransientGeminiError(error)) {
+            throw error;
+          }
+        }
+      }
+      if (!data) {
+        throw lastError || new Error("一括構造化抽出に利用可能なGeminiモデルがありません。");
+      }
+
+      const text = (data?.candidates ?? [])
+        .flatMap((candidate) => candidate?.content?.parts ?? [])
+        .map((part) => part?.text ?? "")
+        .join("\n")
+        .trim();
+
+      const parsed = parseJsonFromText(text);
+      const filesResult = Array.isArray(parsed?.files) ? parsed.files : [];
+      if (!filesResult.length) {
+        throw new Error("一括構造化抽出JSONの解析に失敗しました。");
+      }
+
+      return filesResult;
+    }
+
+    async function extractPdfTextWithLocalOcr(file, fileIndex, totalFiles) {
+      if (!window.pdfjsLib?.getDocument) {
+        throw new Error("PDF.jsの読み込みに失敗しました。通信環境を確認してください。");
+      }
+      if (!window.Tesseract?.recognize) {
+        throw new Error("Tesseract.jsの読み込みに失敗しました。通信環境を確認してください。");
+      }
+
+      const data = await file.arrayBuffer();
+      const loadingTask = window.pdfjsLib.getDocument({ data });
+      const pdf = await loadingTask.promise;
+      const renderScale = Math.min(4, Math.max(2.5, (parseFloat(scaleInput.value) || 1) * 2.4));
+      let allText = "";
+
+      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        const page = await pdf.getPage(pageNum);
+        const viewport = page.getViewport({ scale: renderScale });
+        const pageCanvas = document.createElement("canvas");
+        pageCanvas.width = Math.ceil(viewport.width);
+        pageCanvas.height = Math.ceil(viewport.height);
+        const pageContext = pageCanvas.getContext("2d");
+        await page.render({ canvasContext: pageContext, viewport }).promise;
+
+        if (fileIndex === 0 && pageNum === 1) {
+          showCanvasPreview(pageCanvas);
+        }
+
+        const enhancedCanvas = applyImageEnhancements(pageCanvas);
+        const psmCandidates = ["6", "4", "11"];
+        let bestText = "";
+        let bestScore = -Infinity;
+
+        for (const psm of psmCandidates) {
+          const result = await recognizeWithProgressCustom(
+            enhancedCanvas,
+            `PDF OCR中... (${fileIndex + 1}/${totalFiles}件 ${pageNum}/${pdf.numPages}ページ / PSM ${psm})`,
+            { psm }
+          );
+          const candidateText = normalizeJapaneseSpacing(String(result?.data?.text || ""));
+          const candidateScore = scoreOcrText(candidateText);
+          if (candidateScore > bestScore) {
+            bestScore = candidateScore;
+            bestText = candidateText;
+          }
+        }
+
+        allText += `--- Page ${pageNum} ---\n${bestText.trim()}\n\n`;
+      }
+
+      return allText.trim();
+    }
+
+    function buildComparisonData(vendors) {
+      const rows = vendors.map((vendor) => {
+        const lineItems = Array.isArray(vendor.lineItems) ? vendor.lineItems : [];
+        const amountValues = lineItems
+          .map((item) => parseLooseNumber(item.amount))
+          .filter((value) => Number.isFinite(value));
+        const totalLineItemCount = lineItems.length;
+        const amountItemCount = amountValues.length;
+        const missingAmountCount = Math.max(0, totalLineItemCount - amountItemCount);
+        const amountReadRate = totalLineItemCount > 0
+          ? Math.round((amountItemCount / totalLineItemCount) * 100)
+          : 0;
+        const subtotalExclTax = amountValues.length
+          ? amountValues.reduce((sum, value) => sum + value, 0)
+          : null;
+        return {
+          ...vendor,
+          lineItems,
+          subtotalExclTax,
+          totalLineItemCount,
+          amountItemCount,
+          missingAmountCount,
+          amountReadRate
+        };
+      });
+
+      const validTotals = rows
+        .map((row) => row.subtotalExclTax)
+        .filter((value) => Number.isFinite(value));
+      const minTotal = validTotals.length ? Math.min(...validTotals) : null;
+
+      const summaryRows = [];
+
+      for (const row of rows) {
+        const isLowest = Number.isFinite(row.subtotalExclTax) && minTotal !== null && row.subtotalExclTax === minTotal;
+        summaryRows.push({
+          vendorName: row.vendorName || "-",
+          subtotalExclTax: Number.isFinite(row.subtotalExclTax) ? row.subtotalExclTax : null,
+          totalLineItemCount: row.totalLineItemCount,
+          amountItemCount: row.amountItemCount,
+          missingAmountCount: row.missingAmountCount,
+          amountReadRate: row.amountReadRate,
+          isLowest
+        });
+      }
+
+      const vendorNames = rows.map((row) => row.vendorName || "業者");
+      const itemMap = new Map();
+      rows.forEach((row) => {
+        (row.lineItems || []).forEach((item) => {
+          const key = item.key || `${item.itemName}｜${item.spec}`;
+          if (!itemMap.has(key)) {
+            itemMap.set(key, {
+              sequence: item.sequence || "",
+              itemName: item.itemName || "",
+              spec: item.spec || "",
+              amounts: new Map(),
+              unitPrices: new Map()
+            });
+          }
+          if (!itemMap.get(key).sequence && item.sequence) {
+            itemMap.get(key).sequence = item.sequence;
+          }
+          itemMap.get(key).amounts.set(row.vendorName, item.amount);
+          itemMap.get(key).unitPrices.set(row.vendorName, item.unitPrice);
+        });
+      });
+
+      const detailRows = [];
+
+      for (const item of itemMap.values()) {
+        const unitPricesByVendor = {};
+        vendorNames.forEach((name) => {
+          const value = parseLooseNumber(item.unitPrices.get(name));
+          unitPricesByVendor[name] = Number.isFinite(value) ? value : null;
+        });
+        detailRows.push({
+          sequence: item.sequence || "",
+          itemName: item.itemName || "-",
+          spec: item.spec || "-",
+          unitPricesByVendor
+        });
+      }
+
+      const warnings = rows
+        .filter((row) => row.isTargetForm === false || row.parseError)
+        .map((row) => `- ${row.vendorName}: ${row.reason || row.parseError || "指定様式外の可能性"}`);
+
+      return {
+        rows,
+        vendorNames,
+        summaryRows,
+        detailRows,
+        warnings,
+        itemCount: detailRows.length,
+        vendorCount: vendorNames.length,
+        totalLineItemCount: rows.reduce((sum, row) => sum + (row.totalLineItemCount || 0), 0),
+        totalAmountItemCount: rows.reduce((sum, row) => sum + (row.amountItemCount || 0), 0)
+      };
+    }
+
+    function buildComparisonReport(comparisonData) {
+      if (!comparisonData || !comparisonData.vendorCount) {
+        return "比較対象データがありません。";
+      }
+
+      const header = ["連番", "品目", ...comparisonData.vendorNames];
+      const lines = [
+        "# 業者別 単価比較表",
+        "",
+        `- 業者数: ${comparisonData.vendorCount}`,
+        `- 比較対象品目数: ${comparisonData.itemCount}`,
+        "- 左列: 連番（次列: 品目） / 上段: 業者名 / セル: 単価（税抜）",
+        "",
+        `| ${header.join(" | ")} |`,
+        `| ${header.map(() => "---").join(" | ")} |`
+      ];
+
+      for (const row of comparisonData.detailRows) {
+        const itemLabel = row.spec && row.spec !== "-"
+          ? `${row.itemName}（${row.spec}）`
+          : row.itemName;
+        const sequenceLabel = row.sequence || "-";
+        const cells = comparisonData.vendorNames.map((name) => {
+          const value = row.unitPricesByVendor?.[name];
+          return Number.isFinite(value) ? value : MISSING_UNIT_PRICE_TEXT;
+        });
+        lines.push(`| ${sequenceLabel} | ${itemLabel} | ${cells.join(" | ")} |`);
+      }
+
+      if (comparisonData.warnings.length) {
+        lines.push("", "## 注意");
+        comparisonData.warnings.forEach((warn) => lines.push(warn));
+      }
+
+      return lines.join("\n");
+    }
+
+    function toCsvCell(value) {
+      const text = String(value ?? "").replace(/"/g, '""');
+      return `"${text}"`;
+    }
+
+    function downloadCsv(filename, headers, rows) {
+      const lines = [headers.map(toCsvCell).join(",")];
+      rows.forEach((row) => {
+        lines.push(row.map(toCsvCell).join(","));
+      });
+      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
+
+    function exportSummaryCsv() {
+      if (!lastComparisonData) return;
+      const headers = ["業者", "明細行数", "金額読取済み", "金額未読取", "読取率"];
+      const rows = lastComparisonData.summaryRows.map((row) => [
+        row.vendorName,
+        row.totalLineItemCount ?? 0,
+        row.amountItemCount ?? 0,
+        row.missingAmountCount ?? 0,
+        `${row.amountReadRate ?? 0}%`
+      ]);
+      downloadCsv("comparison_summary.csv", headers, rows);
+    }
+
+    function exportDetailCsv() {
+      if (!lastComparisonData) return;
+      const headers = ["連番", "項目", "仕様", ...lastComparisonData.vendorNames];
+      const rows = lastComparisonData.detailRows.map((row) => {
+        const unitPrices = lastComparisonData.vendorNames.map((name) => {
+          const value = row.unitPricesByVendor[name];
+          return Number.isFinite(value) ? value : MISSING_UNIT_PRICE_TEXT;
+        });
+        return [row.sequence || "", row.itemName, row.spec, ...unitPrices];
+      });
+      downloadCsv("comparison_detail.csv", headers, rows);
+    }
+
+    async function analyzeBidComparisonForFiles(apiKey, files) {
+      const vendors = [];
+      const extractedSources = [];
+      for (let index = 0; index < files.length; index++) {
+        const file = files[index];
+        setProgress((index / files.length) * 50, `PDFテキスト抽出中... ${index + 1}/${files.length}`);
+        appendApiLog(`比較抽出開始: ${file.name} (${index + 1}/${files.length})`);
+        appendApiLog(`本文抽出方式: AI`);
+
+        let rawText = "";
+        try {
+          rawText = await analyzePdfWithGemini(apiKey, file);
+        } catch (error) {
+          vendors.push({
+            vendorName: normalizeVendorName("", file.name),
+            isTargetForm: false,
+            reason: "PDFテキスト抽出に失敗（AI）",
+            parseError: error?.message || String(error),
+            lineItems: []
+          });
+          continue;
+        }
+
+        extractedSources.push({
+          fileName: file.name,
+          sourceText: rawText
+        });
+      }
+
+      const sourceChunks = splitIntoChunks(extractedSources, STRUCTURED_BATCH_SIZE);
+      for (let chunkIndex = 0; chunkIndex < sourceChunks.length; chunkIndex++) {
+        const chunk = sourceChunks[chunkIndex];
+        const chunkStart = chunkIndex * STRUCTURED_BATCH_SIZE + 1;
+        const chunkEnd = chunkStart + chunk.length - 1;
+        appendApiLog(`構造化抽出(一括): ${chunkStart}-${chunkEnd}/${extractedSources.length}`);
+        setProgress(50 + ((chunkIndex + 1) / Math.max(1, sourceChunks.length)) * 50, `業者比較の構造化中... ${chunkIndex + 1}/${sourceChunks.length}`);
+
+        try {
+          const batchResult = await extractBidSheetsStructuredBatchWithGemini(apiKey, chunk);
+          const byFileName = new Map(
+            batchResult.map((entry) => [String(entry?.fileName || "").trim(), entry])
+          );
+
+          chunk.forEach((source) => {
+            const structured = byFileName.get(source.fileName);
+            if (!structured || typeof structured !== "object") {
+              vendors.push({
+                vendorName: normalizeVendorName("", source.fileName),
+                isTargetForm: false,
+                reason: "一括構造化結果に対象データがありません",
+                parseError: "missing_result",
+                lineItems: []
+              });
+              return;
+            }
+
+            const vendorList = Array.isArray(structured?.vendors) ? structured.vendors : [];
+            if (!vendorList.length) {
+              vendors.push({
+                vendorName: normalizeVendorName("", source.fileName),
+                isTargetForm: false,
+                reason: "業者データが見つかりません",
+                parseError: "missing_vendors",
+                lineItems: []
+              });
+              return;
+            }
+
+            vendorList.forEach((vendorEntry, vendorIndex) => {
+              const lineItems = Array.isArray(vendorEntry?.lineItems)
+                ? vendorEntry.lineItems
+                  .map((item) => normalizeLineItem(item, source.sourceText))
+                  .filter((item) => item.itemName || item.spec)
+                : [];
+
+              const fallbackVendorName = vendorList.length > 1
+                ? `${source.fileName.replace(/\.pdf$/i, "")}#${vendorIndex + 1}`
+                : source.fileName;
+
+              vendors.push({
+                vendorName: normalizeVendorName(vendorEntry?.vendorName, fallbackVendorName),
+                isTargetForm: vendorEntry?.isTargetForm !== false,
+                reason: String(vendorEntry?.reason || "").trim(),
+                projectName: String(vendorEntry?.projectName || "").trim(),
+                quoteDate: String(vendorEntry?.quoteDate || "").trim(),
+                validUntil: String(vendorEntry?.validUntil || "").trim(),
+                lineItems
+              });
+            });
+          });
+        } catch (error) {
+          appendApiLog(`一括構造化失敗。個別フォールバック実行: ${error?.message || error}`);
+          for (const source of chunk) {
+            try {
+              const vendorList = await extractBidVendorsFromTextWithGemini(apiKey, source.sourceText, source.fileName);
+              vendorList.forEach((vendorEntry, vendorIndex) => {
+                const lineItems = Array.isArray(vendorEntry?.lineItems)
+                  ? vendorEntry.lineItems
+                    .map((item) => normalizeLineItem(item, source.sourceText))
+                    .filter((item) => item.itemName || item.spec)
+                  : [];
+
+                const fallbackVendorName = vendorList.length > 1
+                  ? `${source.fileName.replace(/\.pdf$/i, "")}#${vendorIndex + 1}`
+                  : source.fileName;
+
+                vendors.push({
+                  vendorName: normalizeVendorName(vendorEntry?.vendorName, fallbackVendorName),
+                  isTargetForm: vendorEntry?.isTargetForm !== false,
+                  reason: String(vendorEntry?.reason || "").trim(),
+                  projectName: String(vendorEntry?.projectName || "").trim(),
+                  quoteDate: String(vendorEntry?.quoteDate || "").trim(),
+                  validUntil: String(vendorEntry?.validUntil || "").trim(),
+                  lineItems
+                });
+              });
+            } catch (fallbackError) {
+              vendors.push({
+                vendorName: normalizeVendorName("", source.fileName),
+                isTargetForm: false,
+                reason: "構造化抽出に失敗",
+                parseError: fallbackError?.message || String(fallbackError),
+                lineItems: []
+              });
+            }
+          }
+        }
+      }
+
+      const comparisonData = buildComparisonData(vendors);
+      comparisonData.rawExtractedText = extractedSources
+        .map((source) => `--- ${source.fileName} ---\n${String(source.sourceText || "").trim()}`)
+        .join("\n\n")
+        .trim();
+      return comparisonData;
+    }
+
+    async function analyzeTextWithGemini(apiKey, sourceText) {
+      const normalized = String(sourceText || "").trim();
+      if (!normalized) {
+        throw new Error("PDF抽出テキストが空です。先にPDF抽出を実行してください。");
+      }
+
+      const MAX_TEXT_LENGTH = 20000;
+      const truncated = normalized.slice(0, MAX_TEXT_LENGTH);
+      if (normalized.length > MAX_TEXT_LENGTH) {
+        appendApiLog(`PDFテキストが長いため先頭${MAX_TEXT_LENGTH}文字に切り詰めて送信します`);
+      }
+      const parts = [{ text: buildAiTextRefinePrompt(truncated) }];
+
+      const modelCandidates = [
+        "gemini-2.5-flash-lite",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash"
+      ];
+
+      let data = null;
+      let lastError = null;
+      for (const model of modelCandidates) {
+        try {
+          data = await callGeminiWithRetry(model, apiKey, parts);
+          apiStats.lastModel = model;
+          break;
+        } catch (error) {
+          lastError = error;
+          apiStats.lastError = error?.message || "unknown";
+          if (![400, 404].includes(error?.status) && !isTransientGeminiError(error)) {
             throw error;
           }
         }
@@ -700,6 +2132,46 @@
       });
     }
 
+    async function recognizeWithProgressCustom(target, label, customParams = {}) {
+      if (!window.Tesseract?.recognize) {
+        throw new Error("Tesseract.jsの読み込みに失敗しました。通信環境を確認してください。");
+      }
+      const params = {
+        tessedit_pageseg_mode: customParams.psm ?? psmSelect.value,
+        tessedit_ocr_engine_mode: customParams.oem ?? oemSelect.value,
+        tessedit_char_whitelist: customParams.whitelist ?? (whitelistInput.value.trim() || undefined)
+      };
+
+      return window.Tesseract.recognize(target, langSelect.value, {
+        ...params,
+        logger: (message) => {
+          if (typeof message.progress === "number") {
+            withPercent(label, message.progress * 100, message.status ? ` (${message.status})` : "");
+          }
+        }
+      });
+    }
+
+    function normalizeJapaneseSpacing(text) {
+      let normalized = String(text || "").replace(/\r\n?/g, "\n");
+      for (let i = 0; i < 3; i++) {
+        normalized = normalized.replace(/([一-龥ぁ-んァ-ヶー々〆ヵヶ])\s+([一-龥ぁ-んァ-ヶー々〆ヵヶ])/g, "$1$2");
+      }
+      normalized = normalized.replace(/[ \t]+\n/g, "\n");
+      normalized = normalized.replace(/\n{3,}/g, "\n\n");
+      return normalized.trim();
+    }
+
+    function scoreOcrText(text) {
+      const value = String(text || "");
+      if (!value.trim()) return -1;
+      const jp = (value.match(/[一-龥ぁ-んァ-ヶー々〆ヵヶ]/g) || []).length;
+      const digits = (value.match(/[0-9０-９]/g) || []).length;
+      const asciiWords = (value.match(/[A-Za-z]{2,}/g) || []).length;
+      const garbage = (value.match(/[|_]{2,}|\[[^\]]{0,1}\]/g) || []).length;
+      return (jp * 2) + digits + asciiWords - (garbage * 2) + Math.min(400, value.length) * 0.2;
+    }
+
     async function extractPdf(file) {
       try {
         clearOverlayData();
@@ -710,6 +2182,8 @@
         captureCameraBtn.disabled = true;
         copyBtn.disabled = true;
         output.value = "";
+        lastComparisonData = null;
+        setExportButtonsState(false);
         status.textContent = "PDFを読み込み中...";
         setProgress(5, "PDFを読み込み中...");
 
@@ -720,31 +2194,58 @@
         const data = await file.arrayBuffer();
         const loadingTask = window.pdfjsLib.getDocument({ data });
         const pdf = await loadingTask.promise;
-
+        const renderScale = Math.min(4, Math.max(2.5, (parseFloat(scaleInput.value) || 1) * 2.4));
         let allText = "";
 
         for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-          withPercent("PDF抽出中...", (pageNum / pdf.numPages) * 100, ` (${pageNum}/${pdf.numPages} ページ)`);
           const page = await pdf.getPage(pageNum);
-          const textContent = await page.getTextContent();
-          const pageText = textContent.items
-            .map((item) => item.str)
-            .join(" ")
-            .replace(/\s+/g, " ")
-            .trim();
+          const viewport = page.getViewport({ scale: renderScale });
+          const pageCanvas = document.createElement("canvas");
+          pageCanvas.width = Math.ceil(viewport.width);
+          pageCanvas.height = Math.ceil(viewport.height);
+          const pageContext = pageCanvas.getContext("2d");
+
+          withPercent("PDFページ描画中...", ((pageNum - 1) / pdf.numPages) * 100, ` (${pageNum}/${pdf.numPages} ページ)`);
+          await page.render({ canvasContext: pageContext, viewport }).promise;
+
+          if (pageNum === 1) {
+            showCanvasPreview(pageCanvas);
+          }
+
+          const enhancedCanvas = applyImageEnhancements(pageCanvas);
+          const psmCandidates = ["6", "4", "11"];
+          let bestText = "";
+          let bestScore = -Infinity;
+
+          for (const psm of psmCandidates) {
+            const ocrResult = await recognizeWithProgressCustom(
+              enhancedCanvas,
+              `PDF OCR中... (${pageNum}/${pdf.numPages} ページ / PSM ${psm})`,
+              { psm }
+            );
+            const candidateText = normalizeJapaneseSpacing(String(ocrResult?.data?.text || ""));
+            const candidateScore = scoreOcrText(candidateText);
+            if (candidateScore > bestScore) {
+              bestScore = candidateScore;
+              bestText = candidateText;
+            }
+          }
+
+          const pageText = bestText.trim();
 
           allText += `--- Page ${pageNum} ---\n${pageText}\n\n`;
         }
 
         output.value = allText.trim();
+        updatePreviewGeminiText(output.value, file?.name || "");
         copyBtn.disabled = output.value.length === 0;
         updateAiButtonState();
         if (!output.value) {
-          status.textContent = "完了: 文字を検出できませんでした（画像PDFの可能性があります）。";
+          status.textContent = "完了: OCRで文字を検出できませんでした。";
         } else {
-          status.textContent = `完了: ${pdf.numPages} ページから抽出しました。`;
+          status.textContent = `完了: OCRで${pdf.numPages}ページを抽出しました。`;
         }
-        setProgress(100, "PDF抽出が完了しました");
+        setProgress(100, "PDF OCRが完了しました");
         lastOcrSource = file;
         lastOcrType = "pdf";
         reOcrBtn.disabled = false;
@@ -772,6 +2273,8 @@
         captureCameraBtn.disabled = true;
         copyBtn.disabled = true;
         output.value = "";
+        lastComparisonData = null;
+        setExportButtonsState(false);
         status.textContent = "画像OCRを実行中...";
         setProgress(3, "画像OCRを開始...");
 
@@ -800,6 +2303,17 @@
       }
     }
 
+    async function previewPdfFile(file) {
+      if (!window.pdfjsLib?.getDocument) {
+        throw new Error("PDF.jsの読み込みに失敗しました。通信環境を確認してください。");
+      }
+      const data = await file.arrayBuffer();
+      const loadingTask = window.pdfjsLib.getDocument({ data });
+      const pdf = await loadingTask.promise;
+      await renderPdfPreview(pdf, file?.name || "");
+      return pdf.numPages;
+    }
+
     function showCanvasPreview(canvas) {
       capturePreview.width = canvas.width;
       capturePreview.height = canvas.height;
@@ -808,6 +2322,7 @@
       hideAllPreviews();
       capturePreview.style.display = "block";
       lastImageData = { canvas, width: canvas.width, height: canvas.height };
+      syncPreviewTextHeight();
       if (overlayVisible) drawOverlay();
     }
 
@@ -990,52 +2505,68 @@
       return tempCanvas;
     }
 
-    async function handleSelectedFile(file) {
+    async function handleSelectedFiles(files) {
       if (isProcessing) {
         status.textContent = "処理中です。完了後にもう一度ファイルを選択してください。";
         return;
       }
 
-      selectedFile = file ?? null;
+      selectedPdfFiles = Array.from(files || []).filter((file) => {
+        const mimeType = (file.type ?? "").toLowerCase();
+        const lowerName = (file.name ?? "").toLowerCase();
+        return mimeType === "application/pdf" || lowerName.endsWith(".pdf");
+      });
+      lastComparisonData = null;
+      setExportButtonsState(false);
+
+      selectedFile = selectedPdfFiles[0] ?? null;
 
       if (!selectedFile) {
-        status.textContent = "PDFまたは画像ファイルを選択してください。";
+        resetPdfPreviewState();
+        status.textContent = "指定様式のPDFファイルを選択してください。";
+        output.value = "";
+        setProgress(0, "待機中");
+        updateAiButtonState();
         return;
       }
 
       clearError();
-      status.textContent = `ファイル確認中: ${selectedFile.name}`;
-      setProgress(1, "ファイル種別を判定中...");
+      status.textContent = `PDF確認中: ${selectedPdfFiles.length}ファイル`;
+      setProgress(1, "PDFプレビューを準備中...");
 
-      const mimeType = (selectedFile.type ?? "").toLowerCase();
-      const lowerName = (selectedFile.name ?? "").toLowerCase();
-      const isPdf = mimeType === "application/pdf" || lowerName.endsWith(".pdf");
-      const isImage = mimeType.startsWith("image/")
-        || /\.(png|jpe?g|gif|bmp|webp|tiff?|heic|heif)$/i.test(lowerName);
-
-      if (isPdf) {
-        await extractPdf(selectedFile);
-        return;
+      try {
+        clearOverlayData();
+        output.value = "";
+        copyBtn.disabled = true;
+        const pages = await previewPdfFile(selectedFile);
+        lastOcrSource = selectedFile;
+        lastOcrType = "pdf";
+        reOcrBtn.disabled = false;
+        status.textContent = `PDFを${selectedPdfFiles.length}ファイル選択しました（先頭: ${selectedFile.name}, ${pages}ページ）。AI連携で業者比較を実行します。`;
+        setProgress(0, "待機中");
+      } catch (error) {
+        showError("PDFプレビューに失敗しました。", formatError(error));
+        output.value = "";
+        reOcrBtn.disabled = true;
+      } finally {
+        updateAiButtonState();
       }
-
-      if (isImage) {
-        showFilePreview(selectedFile);
-        await extractImage(selectedFile);
-        return;
-      }
-
-      status.textContent = "未対応のファイル形式です。PDFまたは画像を選択してください。";
-      output.value = "";
-      fileInput.value = "";
-      setProgress(0, "未対応ファイルです");
     }
 
     fileInput.addEventListener("change", async (event) => {
-      await handleSelectedFile(event.target.files?.[0] ?? null);
+      await handleSelectedFiles(event.target.files || []);
     });
 
     fileInput.addEventListener("input", async (event) => {
-      await handleSelectedFile(event.target.files?.[0] ?? null);
+      await handleSelectedFiles(event.target.files || []);
+    });
+
+    prevPageBtn.addEventListener("click", async () => {
+      await goPreviewPage(-1);
+    });
+
+    nextPageBtn.addEventListener("click", async () => {
+      await goPreviewPage(1);
     });
 
     startCameraBtn.addEventListener("click", async () => {
@@ -1044,6 +2575,7 @@
         return;
       }
       try {
+        resetPdfPreviewState();
         clearError();
         if (window.isSecureContext === false && location.hostname !== "localhost") {
           showError("カメラはHTTPSまたはlocalhostでのみ利用できます。");
@@ -1082,6 +2614,7 @@
       mediaStream = null;
       cameraPreview.srcObject = null;
       hideAllPreviews();
+      syncPreviewTextHeight();
       captureCameraBtn.disabled = true;
       stopCameraBtn.disabled = true;
       status.textContent = "カメラを停止しました。";
@@ -1101,9 +2634,8 @@
         startCameraBtn.disabled = true;
         captureCameraBtn.disabled = true;
         copyBtn.disabled = true;
-        output.value = "";
-        status.textContent = "撮影画像をOCR中...";
-        setProgress(3, "撮影画像OCRを開始...");
+        status.textContent = "撮影中...";
+        setProgress(20, "画像を準備中...");
 
         const canvas = document.createElement("canvas");
         canvas.width = cameraPreview.videoWidth;
@@ -1117,21 +2649,20 @@
         showCanvasPreview(canvas);
         stopCameraBtn.disabled = true;
 
-        const enhancedCanvas = applyImageEnhancements(canvas);
-        const result = await recognizeWithProgress(enhancedCanvas, "撮影画像OCR中...");
-        output.value = result.data.text.trim();
-        copyBtn.disabled = output.value.length === 0;
+        output.value = "";
+        copyBtn.disabled = true;
+        lastComparisonData = null;
+        setExportButtonsState(false);
         updateAiButtonState();
-        status.textContent = "完了: カメラ画像から文字を抽出しました。";
-        setProgress(100, "撮影画像OCRが完了しました");
-        setOverlayData(result, enhancedCanvas.width, enhancedCanvas.height);
+        status.textContent = "撮影完了: AI連携を押して抽出してください。";
+        setProgress(100, "撮影が完了しました");
+        clearOverlayData();
         lastOcrSource = canvas;
         lastOcrType = "camera";
         reOcrBtn.disabled = false;
         updateAiButtonState();
       } catch (error) {
-        showError("カメラ画像OCRに失敗しました。", formatError(error));
-        output.value = "";
+        showError("撮影に失敗しました。", formatError(error));
         console.error(error);
       } finally {
         isProcessing = false;
@@ -1195,20 +2726,83 @@
       drawOverlay();
     });
 
+    toggleOcrOptionsBtn.addEventListener("click", () => {
+      ocrOptionsVisible = !ocrOptionsVisible;
+      updateOcrOptionsVisibility();
+    });
+
+    exportSummaryCsvBtn.addEventListener("click", () => {
+      exportSummaryCsv();
+    });
+
+    exportDetailCsvBtn.addEventListener("click", () => {
+      exportDetailCsv();
+    });
+
+    viewListModeBtn.addEventListener("click", () => {
+      setComparisonViewMode("list");
+    });
+
+    viewTextModeBtn.addEventListener("click", () => {
+      setComparisonViewMode("text");
+    });
+
     aiRefineBtn.addEventListener("click", async () => {
       const apiKey = aiApiKeyInput.value.trim();
       if (!apiKey) {
         showError("Gemini APIキーを入力してください。");
         return;
       }
-      if (!(lastOcrType === "image" || lastOcrType === "camera")) {
-        showError("AI連携は画像またはカメラOCRで利用できます。PDFは未対応です。");
+      if (selectedPdfFiles.length > 0) {
+        try {
+          clearError();
+          appendApiLog("AI連携ボタン押下（業者比較）");
+          isProcessing = true;
+          updateAiButtonState();
+          aiRefineBtn.disabled = true;
+          fileInput.disabled = true;
+          startCameraBtn.disabled = true;
+          captureCameraBtn.disabled = true;
+          reOcrBtn.disabled = true;
+          status.textContent = `Geminiで業者比較表を作成中...（${selectedPdfFiles.length}ファイル）`;
+          setProgress(5, "業者別抽出を開始...");
+
+          const comparisonData = await analyzeBidComparisonForFiles(apiKey, selectedPdfFiles);
+          lastComparisonData = comparisonData;
+          renderComparisonOutput();
+          setExportButtonsState(true);
+          apiStats.success += 1;
+          apiQuotaLimited = false;
+          updateQuotaStatus();
+          status.textContent = "完了: 業者別の集計比較表を作成しました。";
+          setProgress(100, "比較表作成が完了しました");
+        } catch (error) {
+          apiStats.failed += 1;
+          updateQuotaStatus();
+          showError("業者比較表の作成に失敗しました。", formatError(error));
+          console.error(error);
+        } finally {
+          isProcessing = false;
+          fileInput.disabled = false;
+          startCameraBtn.disabled = false;
+          captureCameraBtn.disabled = !mediaStream;
+          reOcrBtn.disabled = !lastOcrSource;
+          updateAiButtonState();
+        }
+        return;
+      }
+      if (!(lastOcrType === "image" || lastOcrType === "camera" || lastOcrType === "pdf")) {
+        showError("AI連携を使うには、先にPDF/画像/カメラでOCRを実行してください。");
         return;
       }
 
       try {
         clearError();
         appendApiLog("AI連携ボタン押下");
+        lastComparisonData = null;
+        setExportButtonsState(false);
+
+        const sourceTextBeforeAi = output.value;
         isProcessing = true;
         updateAiButtonState();
         aiRefineBtn.disabled = true;
@@ -1216,17 +2810,31 @@
         startCameraBtn.disabled = true;
         captureCameraBtn.disabled = true;
         reOcrBtn.disabled = true;
-        status.textContent = "Geminiで画像解析中...";
-        setProgress(15, "画像をGeminiへ送信中...");
+        status.textContent = lastOcrType === "pdf" ? "GeminiでPDFテキスト整形中..." : "Geminiで画像解析中...";
+        setProgress(15, lastOcrType === "pdf" ? "PDFテキストをGeminiへ送信中..." : "画像をGeminiへ送信中...");
 
-        const analyzedText = await analyzeImageWithGemini(apiKey);
-        output.value = analyzedText;
+        let analyzedText = "";
+        let usePdfTextMode = false;
+        if (lastOcrType === "pdf") {
+          analyzedText = await analyzePdfWithGemini(apiKey, lastOcrSource);
+          usePdfTextMode = true;
+        } else {
+          analyzedText = await analyzeImageWithGemini(apiKey);
+        }
+        if (isLowQualityAiResult(analyzedText, sourceTextBeforeAi)) {
+          output.value = sourceTextBeforeAi;
+          appendApiLog("AI応答が判読不能中心だったため、OCR結果を保持しました");
+          status.textContent = "AI応答が不十分だったため、元のOCR結果を保持しました。";
+          setProgress(100, "OCR結果を保持しました");
+        } else {
+          output.value = analyzedText;
+          status.textContent = usePdfTextMode ? "完了: GeminiによるPDFテキスト整形が完了しました。" : "完了: Gemini画像解析が完了しました。";
+          setProgress(100, usePdfTextMode ? "Gemini PDF整形が完了しました" : "Gemini画像解析が完了しました");
+        }
         copyBtn.disabled = output.value.length === 0;
         apiStats.success += 1;
         apiQuotaLimited = false;
         updateQuotaStatus();
-        status.textContent = "完了: Gemini画像解析が完了しました。";
-        setProgress(100, "Gemini画像解析が完了しました");
       } catch (error) {
         apiStats.failed += 1;
         updateQuotaStatus();
@@ -1243,13 +2851,17 @@
     });
 
     window.addEventListener("resize", () => {
+      syncPreviewTextHeight();
       if (overlayVisible) drawOverlay();
     });
 
     setProgress(0, "待機中");
     updateOverlayButtonText();
+    updateOcrOptionsVisibility();
     updateAiButtonState();
     updateQuotaStatus();
+    updateComparisonModeButtons();
+    resetPdfPreviewState();
   </script>
 </body>
 </html>
