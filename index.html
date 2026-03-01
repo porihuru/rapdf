@@ -615,9 +615,65 @@
       );
     }
 
+    function formatLinkedTableText(text) {
+      const normalized = String(text || "").trim();
+      if (!normalized) {
+        return "";
+      }
+
+      const lines = normalized
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0);
+
+      if (!lines.length) {
+        return normalized;
+      }
+
+      const headers = ["品名", "単位", "予定数量", "単価"];
+      const headerIndexes = headers.map((header) => lines.indexOf(header));
+      const hasHeaderBlock = headerIndexes.every((index) => index >= 0)
+        && headerIndexes.slice(1).every((index, i) => index > headerIndexes[i]);
+
+      if (!hasHeaderBlock) {
+        return normalized;
+      }
+
+      const headerEnd = Math.max(...headerIndexes);
+      const body = lines.slice(headerEnd + 1);
+      if (body.length < 5) {
+        return `${headers.join(" ")}\n${body.join("\n")}`.trim();
+      }
+
+      const canRowify = body.length % 5 === 0 && body.every((value, idx) => {
+        if (idx % 5 === 0) {
+          return /^\d+$/.test(value);
+        }
+        return true;
+      });
+
+      if (!canRowify) {
+        return `${headers.join(" ")}\n${body.join("\n")}`.trim();
+      }
+
+      const rowLines = [];
+      for (let index = 0; index < body.length; index += 5) {
+        const seq = body[index] || "";
+        const itemName = body[index + 1] || "";
+        const unit = body[index + 2] || "";
+        const quantity = body[index + 3] || "";
+        const unitPrice = body[index + 4] || "";
+        rowLines.push(`${seq} ${itemName} ${unit} ${quantity} ${unitPrice}`.trim());
+      }
+
+      return `${headers.join(" ")}\n${rowLines.join("\n")}`.trim();
+    }
+
     function setPreviewSideText(text) {
-      const normalized = String(text || "").trim() || "このページの抽出テキストはありません。";
-      previewSideText.innerHTML = highlightPreviewNumericTokens(normalized);
+      const normalized = String(text || "").trim();
+      const formatted = formatLinkedTableText(normalized);
+      const viewText = formatted || "このページの抽出テキストはありません。";
+      previewSideText.innerHTML = highlightPreviewNumericTokens(viewText);
     }
 
     function syncPreviewTextHeight() {
