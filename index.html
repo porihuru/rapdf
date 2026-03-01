@@ -56,8 +56,11 @@
     }
     .preview-pane,
     .preview-text-wrap {
-      width: calc(50% - 6px);
+      width: calc(40% - 6px);
       min-width: 0;
+    }
+    .preview-text-wrap {
+      width: calc(60% - 6px);
     }
     .preview-text-wrap {
       border: 1px solid #d1d5db;
@@ -66,6 +69,7 @@
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      height: 220px;
     }
     .preview-text-title {
       padding: 8px 10px;
@@ -82,14 +86,13 @@
       line-height: 1.5;
       white-space: pre-wrap;
       word-break: break-word;
-      overflow: auto;
-      min-height: 220px;
+      overflow-x: auto;
+      overflow-y: scroll;
+      min-height: 0;
       flex: 1;
     }
     .preview-number-mark {
       font-weight: 700;
-      text-decoration: underline;
-      text-decoration-thickness: 2px;
     }
     .pager-row {
       display: flex;
@@ -263,8 +266,8 @@
         <canvas id="capturePreview" class="preview-canvas"></canvas>
         <canvas id="overlayCanvas" class="overlay-canvas"></canvas>
       </div>
-      <div class="preview-text-wrap">
-        <div class="preview-text-title">連動テキスト（表示中ページ）</div>
+      <div id="previewTextWrap" class="preview-text-wrap">
+        <div id="previewTextTitle" class="preview-text-title">連動テキスト（表示中ページ）</div>
         <pre id="previewSideText" class="preview-side-text">PDFを選択すると、この欄に同じページの抽出テキストを表示します。</pre>
       </div>
     </div>
@@ -385,6 +388,8 @@
     const filePreview = document.getElementById("filePreview");
     const capturePreview = document.getElementById("capturePreview");
     const overlayCanvas = document.getElementById("overlayCanvas");
+    const previewTextWrap = document.getElementById("previewTextWrap");
+    const previewTextTitle = document.getElementById("previewTextTitle");
     const previewSideText = document.getElementById("previewSideText");
     const prevPageBtn = document.getElementById("prevPageBtn");
     const nextPageBtn = document.getElementById("nextPageBtn");
@@ -425,7 +430,6 @@
     const confidenceInput = document.getElementById("confidenceInput");
     const confidenceValue = document.getElementById("confidenceValue");
     const APP_VERSION = "v10";
-    const STRUCTURED_BATCH_SIZE = 10;
     const BATCH_SOURCE_TEXT_MAX_CHARS = 7000;
     const MISSING_UNIT_PRICE_TEXT = "‐";
 
@@ -618,7 +622,10 @@
 
     function syncPreviewTextHeight() {
       const previewHeight = capturePreview.clientHeight || filePreview.clientHeight || cameraPreview.clientHeight || 0;
-      previewSideText.style.height = previewHeight > 0 ? `${previewHeight}px` : "220px";
+      const panelHeight = previewHeight > 0 ? previewHeight : 220;
+      previewTextWrap.style.height = `${panelHeight}px`;
+      const titleHeight = previewTextTitle.clientHeight || 0;
+      previewSideText.style.height = `${Math.max(0, panelHeight - titleHeight)}px`;
     }
 
     function resetPdfPreviewState() {
@@ -1526,15 +1533,6 @@
       return vendorList;
     }
 
-    function splitIntoChunks(values, chunkSize) {
-      const chunks = [];
-      const size = Math.max(1, Number(chunkSize) || 1);
-      for (let index = 0; index < values.length; index += size) {
-        chunks.push(values.slice(index, index + size));
-      }
-      return chunks;
-    }
-
     async function extractBidSheetsStructuredBatchWithGemini(apiKey, sources) {
       const normalizedSources = Array.isArray(sources)
         ? sources.map((source) => ({
@@ -1733,23 +1731,60 @@
 
       const vendorNames = rows.map((row) => row.vendorName || "業者");
       const itemMap = new Map();
+      const fallbackKeyToRowKey = new Map();
+      let unmatchedSequence = 0;
+
+      const buildFallbackKey = (item) => {
+        const itemName = String(item?.itemName || "").trim();
+        const spec = String(item?.spec || "").trim();
+        const unit = String(item?.unit || "").trim();
+        if (!itemName && !spec && !unit) {
+          return "";
+        }
+        return [itemName, spec, unit].join("｜");
+      };
+
       rows.forEach((row) => {
-        (row.lineItems || []).forEach((item) => {
-          const key = item.key || `${item.itemName}｜${item.spec}`;
-          if (!itemMap.has(key)) {
-            itemMap.set(key, {
-              sequence: item.sequence || "",
-              itemName: item.itemName || "",
-              spec: item.spec || "",
+        const vendorName = row.vendorName || "業者";
+        (row.lineItems || []).forEach((item, itemIndex) => {
+          const sequence = String(item?.sequence || "").trim();
+          const fallbackKey = buildFallbackKey(item);
+
+          let rowKey = "";
+          if (sequence) {
+            rowKey = `seq:${sequence}`;
+          } else if (fallbackKey && fallbackKeyToRowKey.has(fallbackKey)) {
+            rowKey = fallbackKeyToRowKey.get(fallbackKey);
+          } else if (fallbackKey) {
+            rowKey = `fallback:${fallbackKey}`;
+          } else {
+            unmatchedSequence += 1;
+            rowKey = `unmatched:${vendorName}:${itemIndex}:${unmatchedSequence}`;
+          }
+
+          if (!itemMap.has(rowKey)) {
+            itemMap.set(rowKey, {
+              sequence,
+              itemName: String(item?.itemName || "").trim(),
+              spec: String(item?.spec || "").trim(),
+              unit: String(item?.unit || "").trim(),
               amounts: new Map(),
               unitPrices: new Map()
             });
           }
-          if (!itemMap.get(key).sequence && item.sequence) {
-            itemMap.get(key).sequence = item.sequence;
+
+          const merged = itemMap.get(rowKey);
+          if (!merged.sequence && sequence) merged.sequence = sequence;
+          if (!merged.itemName && item?.itemName) merged.itemName = String(item.itemName).trim();
+          if (!merged.spec && item?.spec) merged.spec = String(item.spec).trim();
+          if (!merged.unit && item?.unit) merged.unit = String(item.unit).trim();
+
+          if (fallbackKey && !fallbackKeyToRowKey.has(fallbackKey)) {
+            fallbackKeyToRowKey.set(fallbackKey, rowKey);
           }
-          itemMap.get(key).amounts.set(row.vendorName, item.amount);
-          itemMap.get(key).unitPrices.set(row.vendorName, item.unitPrice);
+
+          merged.amounts.set(vendorName, item.amount);
+          merged.unitPrices.set(vendorName, item.unitPrice);
         });
       });
 
@@ -1768,6 +1803,29 @@
           unitPricesByVendor
         });
       }
+
+      detailRows.sort((a, b) => {
+        const aSeq = String(a.sequence || "").trim();
+        const bSeq = String(b.sequence || "").trim();
+        const aHasSeq = Boolean(aSeq);
+        const bHasSeq = Boolean(bSeq);
+
+        if (aHasSeq && bHasSeq) {
+          const aNum = Number(aSeq);
+          const bNum = Number(bSeq);
+          if (Number.isFinite(aNum) && Number.isFinite(bNum) && aNum !== bNum) {
+            return aNum - bNum;
+          }
+          return aSeq.localeCompare(bSeq, "ja");
+        }
+        if (aHasSeq !== bHasSeq) {
+          return aHasSeq ? -1 : 1;
+        }
+
+        const aLabel = `${a.itemName || ""}｜${a.spec || ""}`;
+        const bLabel = `${b.itemName || ""}｜${b.spec || ""}`;
+        return aLabel.localeCompare(bLabel, "ja");
+      });
 
       const warnings = rows
         .filter((row) => row.isTargetForm === false || row.parseError)
@@ -1875,9 +1933,9 @@
       const extractedSources = [];
       for (let index = 0; index < files.length; index++) {
         const file = files[index];
-        setProgress((index / files.length) * 50, `PDFテキスト抽出中... ${index + 1}/${files.length}`);
+        setProgress((index / files.length) * 80, `PDFテキスト抽出中... ${index + 1}/${files.length}`);
         appendApiLog(`比較抽出開始: ${file.name} (${index + 1}/${files.length})`);
-        appendApiLog(`本文抽出方式: AI`);
+        appendApiLog("本文抽出方式: AI");
 
         let rawText = "";
         try {
@@ -1897,106 +1955,67 @@
           fileName: file.name,
           sourceText: rawText
         });
+        if (index === 0) {
+          updatePreviewGeminiText(rawText, file.name);
+        }
       }
 
-      const sourceChunks = splitIntoChunks(extractedSources, STRUCTURED_BATCH_SIZE);
-      for (let chunkIndex = 0; chunkIndex < sourceChunks.length; chunkIndex++) {
-        const chunk = sourceChunks[chunkIndex];
-        const chunkStart = chunkIndex * STRUCTURED_BATCH_SIZE + 1;
-        const chunkEnd = chunkStart + chunk.length - 1;
-        appendApiLog(`構造化抽出(一括): ${chunkStart}-${chunkEnd}/${extractedSources.length}`);
-        setProgress(50 + ((chunkIndex + 1) / Math.max(1, sourceChunks.length)) * 50, `業者比較の構造化中... ${chunkIndex + 1}/${sourceChunks.length}`);
+      if (extractedSources.length) {
+        appendApiLog(`構造化抽出(一括): 1-${extractedSources.length}/${extractedSources.length}`);
+        setProgress(90, "業者比較の構造化中... 1/1");
 
-        try {
-          const batchResult = await extractBidSheetsStructuredBatchWithGemini(apiKey, chunk);
-          const byFileName = new Map(
-            batchResult.map((entry) => [String(entry?.fileName || "").trim(), entry])
-          );
+        const batchResult = await extractBidSheetsStructuredBatchWithGemini(apiKey, extractedSources);
+        const byFileName = new Map(
+          batchResult.map((entry) => [String(entry?.fileName || "").trim(), entry])
+        );
 
-          chunk.forEach((source) => {
-            const structured = byFileName.get(source.fileName);
-            if (!structured || typeof structured !== "object") {
-              vendors.push({
-                vendorName: normalizeVendorName("", source.fileName),
-                isTargetForm: false,
-                reason: "一括構造化結果に対象データがありません",
-                parseError: "missing_result",
-                lineItems: []
-              });
-              return;
-            }
+        extractedSources.forEach((source) => {
+          const structured = byFileName.get(source.fileName);
+          if (!structured || typeof structured !== "object") {
+            vendors.push({
+              vendorName: normalizeVendorName("", source.fileName),
+              isTargetForm: false,
+              reason: "一括構造化結果に対象データがありません",
+              parseError: "missing_result",
+              lineItems: []
+            });
+            return;
+          }
 
-            const vendorList = Array.isArray(structured?.vendors) ? structured.vendors : [];
-            if (!vendorList.length) {
-              vendors.push({
-                vendorName: normalizeVendorName("", source.fileName),
-                isTargetForm: false,
-                reason: "業者データが見つかりません",
-                parseError: "missing_vendors",
-                lineItems: []
-              });
-              return;
-            }
+          const vendorList = Array.isArray(structured?.vendors) ? structured.vendors : [];
+          if (!vendorList.length) {
+            vendors.push({
+              vendorName: normalizeVendorName("", source.fileName),
+              isTargetForm: false,
+              reason: "業者データが見つかりません",
+              parseError: "missing_vendors",
+              lineItems: []
+            });
+            return;
+          }
 
-            vendorList.forEach((vendorEntry, vendorIndex) => {
-              const lineItems = Array.isArray(vendorEntry?.lineItems)
-                ? vendorEntry.lineItems
-                  .map((item) => normalizeLineItem(item, source.sourceText))
-                  .filter((item) => item.itemName || item.spec)
-                : [];
+          vendorList.forEach((vendorEntry, vendorIndex) => {
+            const lineItems = Array.isArray(vendorEntry?.lineItems)
+              ? vendorEntry.lineItems
+                .map((item) => normalizeLineItem(item, source.sourceText))
+                .filter((item) => item.itemName || item.spec)
+              : [];
 
-              const fallbackVendorName = vendorList.length > 1
-                ? `${source.fileName.replace(/\.pdf$/i, "")}#${vendorIndex + 1}`
-                : source.fileName;
+            const fallbackVendorName = vendorList.length > 1
+              ? `${source.fileName.replace(/\.pdf$/i, "")}#${vendorIndex + 1}`
+              : source.fileName;
 
-              vendors.push({
-                vendorName: normalizeVendorName(vendorEntry?.vendorName, fallbackVendorName),
-                isTargetForm: vendorEntry?.isTargetForm !== false,
-                reason: String(vendorEntry?.reason || "").trim(),
-                projectName: String(vendorEntry?.projectName || "").trim(),
-                quoteDate: String(vendorEntry?.quoteDate || "").trim(),
-                validUntil: String(vendorEntry?.validUntil || "").trim(),
-                lineItems
-              });
+            vendors.push({
+              vendorName: normalizeVendorName(vendorEntry?.vendorName, fallbackVendorName),
+              isTargetForm: vendorEntry?.isTargetForm !== false,
+              reason: String(vendorEntry?.reason || "").trim(),
+              projectName: String(vendorEntry?.projectName || "").trim(),
+              quoteDate: String(vendorEntry?.quoteDate || "").trim(),
+              validUntil: String(vendorEntry?.validUntil || "").trim(),
+              lineItems
             });
           });
-        } catch (error) {
-          appendApiLog(`一括構造化失敗。個別フォールバック実行: ${error?.message || error}`);
-          for (const source of chunk) {
-            try {
-              const vendorList = await extractBidVendorsFromTextWithGemini(apiKey, source.sourceText, source.fileName);
-              vendorList.forEach((vendorEntry, vendorIndex) => {
-                const lineItems = Array.isArray(vendorEntry?.lineItems)
-                  ? vendorEntry.lineItems
-                    .map((item) => normalizeLineItem(item, source.sourceText))
-                    .filter((item) => item.itemName || item.spec)
-                  : [];
-
-                const fallbackVendorName = vendorList.length > 1
-                  ? `${source.fileName.replace(/\.pdf$/i, "")}#${vendorIndex + 1}`
-                  : source.fileName;
-
-                vendors.push({
-                  vendorName: normalizeVendorName(vendorEntry?.vendorName, fallbackVendorName),
-                  isTargetForm: vendorEntry?.isTargetForm !== false,
-                  reason: String(vendorEntry?.reason || "").trim(),
-                  projectName: String(vendorEntry?.projectName || "").trim(),
-                  quoteDate: String(vendorEntry?.quoteDate || "").trim(),
-                  validUntil: String(vendorEntry?.validUntil || "").trim(),
-                  lineItems
-                });
-              });
-            } catch (fallbackError) {
-              vendors.push({
-                vendorName: normalizeVendorName("", source.fileName),
-                isTargetForm: false,
-                reason: "構造化抽出に失敗",
-                parseError: fallbackError?.message || String(fallbackError),
-                lineItems: []
-              });
-            }
-          }
-        }
+        });
       }
 
       const comparisonData = buildComparisonData(vendors);
