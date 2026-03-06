@@ -615,10 +615,102 @@
       );
     }
 
+    function parseFixedBidTableRows(text) {
+      const normalized = String(text || "").trim();
+      if (!normalized) {
+        return null;
+      }
+
+      const lines = normalized
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0);
+      if (!lines.length) {
+        return null;
+      }
+
+      const itemHeaderIndex = lines.findIndex((line) => /連番/.test(line) && /品名/.test(line));
+      if (itemHeaderIndex < 0) {
+        return null;
+      }
+
+      const unitQtyHeaderIndex = lines.findIndex((line, idx) => idx > itemHeaderIndex && /単位/.test(line) && /予定数量/.test(line));
+      const priceHeaderIndex = lines.findIndex((line, idx) => idx > itemHeaderIndex && /^単価$/.test(line));
+      if (unitQtyHeaderIndex < 0 || priceHeaderIndex < 0 || unitQtyHeaderIndex >= priceHeaderIndex) {
+        return null;
+      }
+
+      const items = [];
+      for (let i = itemHeaderIndex + 1; i < unitQtyHeaderIndex; i++) {
+        const line = lines[i];
+        const matched = line.match(/^(\d{1,3})\s+(.+)$/);
+        if (!matched) {
+          continue;
+        }
+        items.push({ sequence: matched[1], itemName: matched[2].trim() });
+      }
+      if (!items.length) {
+        return null;
+      }
+
+      const unitQtyBlock = lines.slice(unitQtyHeaderIndex + 1, priceHeaderIndex);
+      const units = [];
+      const quantities = [];
+      for (const token of unitQtyBlock) {
+        const num = parseLooseNumber(token);
+        if (Number.isFinite(num) && /[0-9０-９]/.test(token)) {
+          quantities.push(token);
+        } else {
+          units.push(token);
+        }
+      }
+
+      const prices = [];
+      for (let i = priceHeaderIndex + 1; i < lines.length; i++) {
+        const token = lines[i];
+        const num = parseLooseNumber(token);
+        if (Number.isFinite(num) && /[0-9０-９]/.test(token)) {
+          prices.push(token);
+          continue;
+        }
+        if (prices.length > 0) {
+          break;
+        }
+      }
+
+      const rows = items.map((item, idx) => ({
+        sequence: item.sequence,
+        itemName: item.itemName,
+        unit: units[idx] || "",
+        quantity: quantities[idx] || "",
+        unitPriceRaw: prices[idx] || ""
+      }));
+
+      const prefixLines = lines.slice(0, itemHeaderIndex);
+      return { prefixLines, rows };
+    }
+
     function formatLinkedTableText(text) {
       const normalized = String(text || "").trim();
       if (!normalized) {
         return "";
+      }
+
+      const fixedTable = parseFixedBidTableRows(normalized);
+      if (fixedTable?.rows?.length) {
+        const rowLines = fixedTable.rows.map((row) => {
+          const unitLabel = row.unit || "-";
+          const quantityLabel = row.quantity || "-";
+          const unitPriceLabel = row.unitPriceRaw || MISSING_UNIT_PRICE_TEXT;
+          return `${row.sequence} ${row.itemName} ${unitLabel} ${quantityLabel} ${unitPriceLabel}`.trim();
+        });
+
+        const mergedLines = [
+          ...(fixedTable.prefixLines || []),
+          "連番 品名 単位 予定数量 単価",
+          ...rowLines
+        ].filter((line) => String(line || "").trim().length > 0);
+        return mergedLines.join("\n").trim();
       }
 
       const lines = normalized
@@ -631,6 +723,7 @@
       }
 
       const headers = ["品名", "単位", "予定数量", "単価"];
+      const outputHeaders = ["連番", ...headers];
       const headerIndexes = headers.map((header) => lines.indexOf(header));
       const hasHeaderBlock = headerIndexes.every((index) => index >= 0)
         && headerIndexes.slice(1).every((index, i) => index > headerIndexes[i]);
@@ -639,34 +732,99 @@
         return normalized;
       }
 
+      const headerStart = Math.min(...headerIndexes);
       const headerEnd = Math.max(...headerIndexes);
+      const prefix = lines.slice(0, headerStart);
       const body = lines.slice(headerEnd + 1);
-      if (body.length < 5) {
-        return `${headers.join(" ")}\n${body.join("\n")}`.trim();
+      if (body.length < 2) {
+        return normalized;
       }
 
-      const canRowify = body.length % 5 === 0 && body.every((value, idx) => {
-        if (idx % 5 === 0) {
-          return /^\d+$/.test(value);
+      const sequenceIndexes = [];
+      let lastSequenceNumber = null;
+      const MAX_SEQUENCE_NUMBER = 300;
+      for (let index = 0; index < body.length; index++) {
+        const value = body[index];
+        if (!/^\d+$/.test(value)) {
+          continue;
         }
-        return true;
-      });
 
-      if (!canRowify) {
-        return `${headers.join(" ")}\n${body.join("\n")}`.trim();
+        const num = Number(value);
+        if (!Number.isFinite(num) || num <= 0 || num > MAX_SEQUENCE_NUMBER) {
+          continue;
+        }
+
+        const isFirst = lastSequenceNumber === null;
+        const isNextLikelySequence = !isFirst && num > lastSequenceNumber && num <= (lastSequenceNumber + 5);
+        if (isFirst || isNextLikelySequence) {
+          sequenceIndexes.push(index);
+          lastSequenceNumber = num;
+        }
+      }
+
+      if (!sequenceIndexes.length) {
+        return normalized;
       }
 
       const rowLines = [];
-      for (let index = 0; index < body.length; index += 5) {
-        const seq = body[index] || "";
-        const itemName = body[index + 1] || "";
-        const unit = body[index + 2] || "";
-        const quantity = body[index + 3] || "";
-        const unitPrice = body[index + 4] || "";
-        rowLines.push(`${seq} ${itemName} ${unit} ${quantity} ${unitPrice}`.trim());
+      for (let i = 0; i < sequenceIndexes.length; i++) {
+        const start = sequenceIndexes[i];
+        const end = i + 1 < sequenceIndexes.length ? sequenceIndexes[i + 1] : body.length;
+        const chunk = body.slice(start, end).filter((value) => String(value || "").trim().length > 0);
+        if (!chunk.length) {
+          continue;
+        }
+        const seq = chunk[0];
+        const values = chunk.slice(1);
+        const rowText = values.length ? `${seq} ${values.join(" ")}` : seq;
+        rowLines.push(rowText.trim());
       }
 
-      return `${headers.join(" ")}\n${rowLines.join("\n")}`.trim();
+      if (!rowLines.length) {
+        return normalized;
+      }
+
+      const mergedLines = [
+        ...prefix,
+        outputHeaders.join(" "),
+        ...rowLines
+      ].filter((line) => String(line || "").trim().length > 0);
+      return mergedLines.join("\n").trim();
+    }
+
+    function buildFallbackVendorFromSourceText(sourceText, fallbackFileName) {
+      const fixedTable = parseFixedBidTableRows(sourceText);
+      const rows = fixedTable?.rows || [];
+      if (!rows.length) {
+        return null;
+      }
+
+      const nameLine = String(sourceText || "")
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .find((line) => /^氏名\s*/.test(line));
+      const extractedName = nameLine ? nameLine.replace(/^氏名\s*/, "").trim() : "";
+
+      const lineItems = rows
+        .map((row) => normalizeLineItem({
+          sequence: row.sequence,
+          itemName: row.itemName,
+          unit: row.unit,
+          quantity: row.quantity,
+          unitPrice: row.unitPriceRaw,
+          unitPriceRaw: row.unitPriceRaw
+        }, sourceText))
+        .filter((item) => item.itemName || item.spec);
+
+      return {
+        vendorName: normalizeVendorName(extractedName, fallbackFileName),
+        isTargetForm: true,
+        reason: "構造化抽出フォールバック（固定帳票パーサ）",
+        projectName: "",
+        quoteDate: "",
+        validUntil: "",
+        lineItems
+      };
     }
 
     function setPreviewSideText(text) {
@@ -741,7 +899,15 @@
     }
 
     async function updatePreviewSideTextByPage(pageNumber) {
-      const geminiText = previewGeminiPageTextMap[pageNumber];
+      const geminiPageKeys = Object.keys(previewGeminiPageTextMap || {})
+        .map((key) => Number(key))
+        .filter((key) => Number.isFinite(key) && key > 0);
+      const hasPageSplitGeminiText = geminiPageKeys.length >= 2
+        || (geminiPageKeys.length === 1 && (previewPdfPageCount || 0) <= 1);
+      const geminiText = hasPageSplitGeminiText
+        ? previewGeminiPageTextMap[pageNumber]
+        : "";
+
       if (geminiText) {
         setPreviewSideText(geminiText);
         syncPreviewTextHeight();
@@ -763,7 +929,13 @@
         }
       }
 
-      setPreviewSideText(previewPageTextCache.get(pageNumber) || "");
+      const pageText = String(previewPageTextCache.get(pageNumber) || "").trim();
+      const geminiFullText = String(previewGeminiPageTextMap?.[1] || "").trim();
+      const fallbackText = (!pageText && !hasPageSplitGeminiText && geminiFullText)
+        ? geminiFullText
+        : pageText;
+
+      setPreviewSideText(fallbackText);
       syncPreviewTextHeight();
     }
 
@@ -1310,6 +1482,14 @@
           return JSON.parse(raw.slice(first, last + 1));
         } catch {}
       }
+
+      const firstArray = raw.indexOf("[");
+      const lastArray = raw.lastIndexOf("]");
+      if (firstArray >= 0 && lastArray > firstArray) {
+        try {
+          return JSON.parse(raw.slice(firstArray, lastArray + 1));
+        } catch {}
+      }
       return null;
     }
 
@@ -1687,6 +1867,215 @@
       return filesResult;
     }
 
+    async function extractBidSheetsDirectFromPdfFilesWithGemini(apiKey, files) {
+      if (!window.pdfjsLib?.getDocument) {
+        throw new Error("PDF.jsの読み込みに失敗しました。通信環境を確認してください。");
+      }
+
+      const targetFiles = Array.isArray(files) ? files.filter((file) => file instanceof File) : [];
+      if (!targetFiles.length) {
+        return [];
+      }
+
+      const fileMeta = targetFiles.map((file) => ({ fileName: String(file?.name || "") }));
+      const parts = [{
+        text: [
+          "あなたは入札書（指定様式）抽出アシスタントです。",
+          "以下の複数PDF画像を解析し、必ずJSONオブジェクトのみを返してください。説明文やMarkdownは禁止です。",
+          "重要: 入力全体に対して1つのJSONを返し、files配列でファイルごとに結果を分けてください。",
+          "様式ルール: 入札者・住所・氏名の欄は手書き、明細は 連番・品名・単位・予定数量・単価 の列構成で、手書きは主に単価です。",
+          "vendorName は入札者欄または氏名欄から抽出してください（住所を業者名にしない）。",
+          "lineItems の sequence は連番、quantity は予定数量、unitPrice は手書きの単価を優先して抽出してください。",
+          "unitPrice は必ず数字（可能なら数値型）で返してください。通貨記号や文字は含めないでください。",
+          "lineItems ごとに unitPriceRaw（元の手書き単価文字列）を必ず返してください。",
+          "単価が空欄・判別不能・あいまいな場合は unitPrice を null にしてください。推測で数値を入れてはいけません。",
+          "各ファイルには複数業者が含まれる可能性があります。",
+          "このアプリでは金額はすべて税抜きで扱います。税込・税額・値引きは抽出不要です。",
+          "lineItems の amount は税抜き金額として必ず優先抽出してください。",
+          "amount が見つからない場合は、税抜の単価しか無ければ amount に同じ値を入れてください。",
+          "rawExtractedPages にはページごとの抽出テキストを入れてください（pageは1始まり）。",
+          "rawExtractedText にはページ順の全文を入れてください。可能なら各ページ先頭に `--- Page N ---` を付与してください。",
+          "JSONスキーマ:",
+          "{",
+          '  "files": [',
+          "    {",
+          '      "fileName": "",',
+          '      "rawExtractedPages": [ { "page": 1, "text": "" } ],',
+          '      "rawExtractedText": "",',
+          '      "vendors": [',
+          "        {",
+          '          "isTargetForm": true,',
+          '          "reason": "",',
+          '          "vendorName": "",',
+          '          "projectName": "",',
+          '          "quoteDate": "",',
+          '          "validUntil": "",',
+          '          "lineItems": [',
+          '            { "sequence": "", "itemName": "", "spec": "", "quantity": "", "unit": "", "unitPrice": null, "unitPriceRaw": "", "amount": null }',
+          "          ]",
+          "        }",
+          "      ]",
+          "    }",
+          "  ]",
+          "}",
+          "",
+          "入力ファイル一覧(JSON):",
+          JSON.stringify(fileMeta)
+        ].join("\n")
+      }];
+
+      let renderedPageCount = 0;
+      let totalPageCount = 0;
+      const loadedPdfs = [];
+
+      for (const file of targetFiles) {
+        const data = await file.arrayBuffer();
+        const loadingTask = window.pdfjsLib.getDocument({ data });
+        const pdf = await loadingTask.promise;
+        loadedPdfs.push({ file, pdf });
+        totalPageCount += Math.min(pdf.numPages, 50);
+      }
+
+      for (let fileIndex = 0; fileIndex < loadedPdfs.length; fileIndex++) {
+        const { file, pdf } = loadedPdfs[fileIndex];
+        const maxPages = Math.min(pdf.numPages, 50);
+        parts.push({ text: `### FILE_START: ${file.name} (${fileIndex + 1}/${loadedPdfs.length}, pages:${maxPages})` });
+
+        for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
+          const page = await pdf.getPage(pageNum);
+          const viewport = page.getViewport({ scale: 2.4 });
+          const pageCanvas = document.createElement("canvas");
+          pageCanvas.width = Math.ceil(viewport.width);
+          pageCanvas.height = Math.ceil(viewport.height);
+          const pageContext = pageCanvas.getContext("2d");
+          await page.render({ canvasContext: pageContext, viewport }).promise;
+
+          if (fileIndex === 0 && pageNum === 1) {
+            showCanvasPreview(pageCanvas);
+          }
+
+          const scaled = scaleSize(pageCanvas.width, pageCanvas.height, 1900);
+          const resizedCanvas = drawScaledToCanvas(pageCanvas, scaled.width, scaled.height);
+          const base64 = canvasToJpegBase64(resizedCanvas);
+          if (!base64) {
+            continue;
+          }
+
+          parts.push({ inline_data: { mime_type: "image/jpeg", data: base64 } });
+          renderedPageCount += 1;
+          const progressBase = totalPageCount > 0 ? (renderedPageCount / totalPageCount) : 1;
+          setProgress(progressBase * 80, `Gemini送信用にPDFを準備中... ${renderedPageCount}/${totalPageCount}ページ`);
+        }
+      }
+
+      if (parts.length <= 1) {
+        throw new Error("PDF解析入力が空でした。");
+      }
+
+      const strictModel = "gemini-2.5-flash";
+      let data = null;
+      try {
+        data = await callGeminiWithModel(strictModel, apiKey, parts);
+        apiStats.lastModel = strictModel;
+      } catch (error) {
+        apiStats.lastError = error?.message || "unknown";
+        throw error;
+      }
+
+      const text = (data?.candidates ?? [])
+        .flatMap((candidate) => candidate?.content?.parts ?? [])
+        .map((part) => part?.text ?? "")
+        .join("\n")
+        .trim();
+
+      const parsed = parseJsonFromText(text);
+      let filesResult = Array.isArray(parsed?.files) ? parsed.files : [];
+
+      const extractFilesArrayJsonText = (sourceText) => {
+        const source = String(sourceText || "");
+        const keyMatch = /"files"\s*:/i.exec(source);
+        if (!keyMatch) {
+          return "";
+        }
+        const keyIndex = keyMatch.index + keyMatch[0].length;
+        const start = source.indexOf("[", keyIndex);
+        if (start < 0) {
+          return "";
+        }
+        let depth = 0;
+        let inString = false;
+        let escaped = false;
+        for (let i = start; i < source.length; i++) {
+          const ch = source[i];
+          if (escaped) {
+            escaped = false;
+            continue;
+          }
+          if (ch === "\\") {
+            escaped = true;
+            continue;
+          }
+          if (ch === '"') {
+            inString = !inString;
+            continue;
+          }
+          if (inString) {
+            continue;
+          }
+          if (ch === "[") {
+            depth += 1;
+          } else if (ch === "]") {
+            depth -= 1;
+            if (depth === 0) {
+              return source.slice(start, i + 1);
+            }
+          }
+        }
+        return "";
+      };
+
+      if (!filesResult.length) {
+        const filesArrayJson = extractFilesArrayJsonText(text);
+        if (filesArrayJson) {
+          try {
+            const arrayParsed = JSON.parse(filesArrayJson);
+            if (Array.isArray(arrayParsed)) {
+              filesResult = arrayParsed;
+            }
+          } catch {}
+        }
+      }
+
+      if (!filesResult.length && Array.isArray(parsed)) {
+        filesResult = parsed;
+      }
+
+      if (!filesResult.length && parsed && typeof parsed === "object") {
+        const parsedVendors = Array.isArray(parsed?.vendors) ? parsed.vendors : [];
+        if (parsedVendors.length && targetFiles.length === 1) {
+          filesResult = [{
+            fileName: targetFiles[0].name,
+            rawExtractedText: String(parsed?.rawExtractedText || "").trim(),
+            vendors: parsedVendors
+          }];
+        }
+      }
+
+      if (!filesResult.length && targetFiles.length > 0) {
+        filesResult = targetFiles.map((file) => ({
+          fileName: file.name,
+          rawExtractedText: "",
+          vendors: []
+        }));
+      }
+
+      if (!filesResult.length) {
+        throw new Error("直接構造化抽出JSONの解析に失敗しました。");
+      }
+
+      return filesResult;
+    }
+
     async function extractPdfTextWithLocalOcr(file, fileIndex, totalFiles) {
       if (!window.pdfjsLib?.getDocument) {
         throw new Error("PDF.jsの読み込みに失敗しました。通信環境を確認してください。");
@@ -1987,92 +2376,93 @@
     async function analyzeBidComparisonForFiles(apiKey, files) {
       const vendors = [];
       const extractedSources = [];
-      for (let index = 0; index < files.length; index++) {
-        const file = files[index];
-        setProgress((index / files.length) * 80, `PDFテキスト抽出中... ${index + 1}/${files.length}`);
-        appendApiLog(`比較抽出開始: ${file.name} (${index + 1}/${files.length})`);
-        appendApiLog("本文抽出方式: AI");
+      appendApiLog(`比較抽出開始: ${files.length}ファイル`);
+      appendApiLog("本文抽出+構造化方式: AI（1回）");
+      setProgress(5, "比較用PDFを準備中...");
 
-        let rawText = "";
-        try {
-          rawText = await analyzePdfWithGemini(apiKey, file);
-        } catch (error) {
+      const directResults = await extractBidSheetsDirectFromPdfFilesWithGemini(apiKey, files);
+      appendApiLog("構造化抽出(一括): 1回実行");
+
+      const byFileName = new Map(
+        directResults.map((entry) => [String(entry?.fileName || "").trim(), entry])
+      );
+
+      files.forEach((file, index) => {
+        const fallback = directResults[index];
+        const structured = byFileName.get(String(file?.name || "").trim()) || fallback;
+
+        if (!structured || typeof structured !== "object") {
           vendors.push({
             vendorName: normalizeVendorName("", file.name),
             isTargetForm: false,
-            reason: "PDFテキスト抽出に失敗（AI）",
-            parseError: error?.message || String(error),
+            reason: "一括構造化結果に対象データがありません",
+            parseError: "missing_result",
             lineItems: []
           });
-          continue;
+          return;
         }
+
+        const rawPages = Array.isArray(structured?.rawExtractedPages)
+          ? structured.rawExtractedPages
+            .map((entry) => ({
+              page: Number(entry?.page),
+              text: String(entry?.text || "").trim()
+            }))
+            .filter((entry) => Number.isFinite(entry.page) && entry.page > 0 && entry.text)
+            .sort((a, b) => a.page - b.page)
+          : [];
+
+        const sourceText = rawPages.length
+          ? rawPages.map((entry) => `--- Page ${entry.page} ---\n${entry.text}`).join("\n\n").trim()
+          : String(structured?.rawExtractedText || "").trim();
 
         extractedSources.push({
           fileName: file.name,
-          sourceText: rawText
+          sourceText
         });
-        if (index === 0) {
-          updatePreviewGeminiText(rawText, file.name);
+        if (index === 0 && sourceText) {
+          updatePreviewGeminiText(sourceText, file.name);
         }
-      }
 
-      if (extractedSources.length) {
-        appendApiLog(`構造化抽出(一括): 1-${extractedSources.length}/${extractedSources.length}`);
-        setProgress(90, "業者比較の構造化中... 1/1");
-
-        const batchResult = await extractBidSheetsStructuredBatchWithGemini(apiKey, extractedSources);
-        const byFileName = new Map(
-          batchResult.map((entry) => [String(entry?.fileName || "").trim(), entry])
-        );
-
-        extractedSources.forEach((source) => {
-          const structured = byFileName.get(source.fileName);
-          if (!structured || typeof structured !== "object") {
-            vendors.push({
-              vendorName: normalizeVendorName("", source.fileName),
-              isTargetForm: false,
-              reason: "一括構造化結果に対象データがありません",
-              parseError: "missing_result",
-              lineItems: []
-            });
+        const vendorList = Array.isArray(structured?.vendors) ? structured.vendors : [];
+        if (!vendorList.length) {
+          const fallbackVendor = buildFallbackVendorFromSourceText(sourceText, file.name);
+          if (fallbackVendor) {
+            vendors.push(fallbackVendor);
             return;
           }
+          vendors.push({
+            vendorName: normalizeVendorName("", file.name),
+            isTargetForm: false,
+            reason: "業者データが見つかりません",
+            parseError: "missing_vendors",
+            lineItems: []
+          });
+          return;
+        }
 
-          const vendorList = Array.isArray(structured?.vendors) ? structured.vendors : [];
-          if (!vendorList.length) {
-            vendors.push({
-              vendorName: normalizeVendorName("", source.fileName),
-              isTargetForm: false,
-              reason: "業者データが見つかりません",
-              parseError: "missing_vendors",
-              lineItems: []
-            });
-            return;
-          }
+        vendorList.forEach((vendorEntry, vendorIndex) => {
+          const lineItems = Array.isArray(vendorEntry?.lineItems)
+            ? vendorEntry.lineItems
+              .map((item) => normalizeLineItem(item, sourceText))
+              .filter((item) => item.itemName || item.spec)
+            : [];
 
-          vendorList.forEach((vendorEntry, vendorIndex) => {
-            const lineItems = Array.isArray(vendorEntry?.lineItems)
-              ? vendorEntry.lineItems
-                .map((item) => normalizeLineItem(item, source.sourceText))
-                .filter((item) => item.itemName || item.spec)
-              : [];
+          const fallbackVendorName = vendorList.length > 1
+            ? `${file.name.replace(/\.pdf$/i, "")}#${vendorIndex + 1}`
+            : file.name;
 
-            const fallbackVendorName = vendorList.length > 1
-              ? `${source.fileName.replace(/\.pdf$/i, "")}#${vendorIndex + 1}`
-              : source.fileName;
-
-            vendors.push({
-              vendorName: normalizeVendorName(vendorEntry?.vendorName, fallbackVendorName),
-              isTargetForm: vendorEntry?.isTargetForm !== false,
-              reason: String(vendorEntry?.reason || "").trim(),
-              projectName: String(vendorEntry?.projectName || "").trim(),
-              quoteDate: String(vendorEntry?.quoteDate || "").trim(),
-              validUntil: String(vendorEntry?.validUntil || "").trim(),
-              lineItems
-            });
+          vendors.push({
+            vendorName: normalizeVendorName(vendorEntry?.vendorName, fallbackVendorName),
+            isTargetForm: vendorEntry?.isTargetForm !== false,
+            reason: String(vendorEntry?.reason || "").trim(),
+            projectName: String(vendorEntry?.projectName || "").trim(),
+            quoteDate: String(vendorEntry?.quoteDate || "").trim(),
+            validUntil: String(vendorEntry?.validUntil || "").trim(),
+            lineItems
           });
         });
-      }
+      });
 
       const comparisonData = buildComparisonData(vendors);
       comparisonData.rawExtractedText = extractedSources
